@@ -17,6 +17,7 @@ class ReportJsonTest {
 
         assertEquals(report, decoded)
         val json = Json.parseToJsonElement(encoded).jsonObject
+        // v2 added measurementSummary (T-002); v3 adds detectorModel/inference/captures (T-007).
         assertEquals(
             listOf(
                 "schemaVersion",
@@ -26,13 +27,18 @@ class ReportJsonTest {
                 "capabilities",
                 "cameraConfigs",
                 "measurements",
+                "measurementSummary",
                 "sessionLog",
                 "notes",
+                "detectorModel",
+                "inference",
+                "captures",
             ),
             json.keys.toList(),
         )
-        assertEquals(1, json["schemaVersion"]?.toString()?.toInt())
+        assertEquals(3, json["schemaVersion"]?.toString()?.toInt())
         assertEquals("null", json["sessionLog"].toString())
+        assertTrue(encoded.replace(" ", "").contains("\"surface\":\"TABLE_EDGE\""))
         assertTrue(findSensitiveKeys(json).isEmpty())
 
         val reportWithSession = sampleReport(
@@ -71,7 +77,33 @@ class ReportJsonTest {
             configureErrorClass = null,
         ),
         cameraConfigs = emptyList(),
-        measurements = emptyList(),
+        measurements = listOf(
+            MeasurementTrial(
+                index = 1,
+                label = "Table edge · ~1 m · trial 1",
+                surface = TrialSurface.TABLE_EDGE,
+                nominalDistance = TrialDistance.NEAR_1M,
+                recordedAtUtc = "2026-10-11T00:01:00Z",
+                tapeCm = 100.0,
+                arcoreM = 0.98,
+                errorCm = -2.0,
+                errorPct = -2.0,
+                hitTypes = listOf("PLANE_HORIZONTAL_UPWARD_FACING"),
+                trackingAtMeasure = "TRACKING",
+                anchorTrackingAtMeasure = listOf("TRACKING", "TRACKING"),
+            ),
+        ),
+        measurementSummary = listOf(
+            ConditionSummary(
+                surface = TrialSurface.TABLE_EDGE,
+                nominalDistance = TrialDistance.NEAR_1M,
+                count = 1,
+                meanErrorCm = -2.0,
+                meanAbsErrorCm = 2.0,
+                maxAbsErrorCm = 2.0,
+                meanAbsErrorPct = 2.0,
+            ),
+        ),
         sessionLog = sessionLog,
         notes = "",
     )

@@ -44,6 +44,17 @@ function labelSprite(text: string): THREE.Sprite {
   return sprite;
 }
 
+function proxyBox(item: ViewerItem): THREE.Mesh {
+  const proxy = new THREE.Mesh(
+    new THREE.BoxGeometry(item.dimsM.widthM, item.dimsM.heightM, item.dimsM.depthM),
+    new THREE.MeshStandardMaterial({ color: 0x8a9b94, transparent: true, opacity: 0.5 }),
+  );
+  proxy.position.y = item.dimsM.heightM / 2;
+  proxy.castShadow = true;
+  proxy.userData.itemId = item.id;
+  return proxy;
+}
+
 export default function Viewer3D({ room, items, placements, selectedId, onSelect, onMove, onStats }: Props) {
   const mountRef = useRef<HTMLDivElement>(null);
   const stateRef = useRef<{
@@ -63,10 +74,10 @@ export default function Viewer3D({ room, items, placements, selectedId, onSelect
     raycaster: THREE.Raycaster;
     floorPlane: THREE.Plane;
     loader: GLTFLoader;
-    setLoadError: (e: string | null) => void;
+    setLoadError: (e: { itemId: string; message: string } | null) => void;
     onStatsRef: { current: (s: FrameStats) => void };
   } | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<{ itemId: string; message: string } | null>(null);
   const onStatsRef = useRef(onStats);
   onStatsRef.current = onStats;
 
@@ -129,6 +140,12 @@ export default function Viewer3D({ room, items, placements, selectedId, onSelect
       group.userData.itemId = item.id;
       s.itemGroups.set(item.id, group);
       s.scene.add(group);
+      if (item.boxProxy) {
+        group.add(proxyBox(item));
+        syncPlacements(s);
+        syncSelection(s);
+        continue;
+      }
       s.loader.load(
         item.assetUrl,
         (gltf) => {
@@ -149,15 +166,9 @@ export default function Viewer3D({ room, items, placements, selectedId, onSelect
         },
         undefined,
         () => {
-          s.setLoadError(`Could not load model for ${item.title}. The 2D footprint below is still accurate.`);
+          s.setLoadError({ itemId: item.id, message: `Could not load model for ${item.title}. The 2D footprint below is still accurate.` });
           // Fallback: footprint proxy box so the item still renders.
-          const proxy = new THREE.Mesh(
-            new THREE.BoxGeometry(item.dimsM.widthM, item.dimsM.heightM, item.dimsM.depthM),
-            new THREE.MeshStandardMaterial({ color: 0x8a9b94, transparent: true, opacity: 0.5 }),
-          );
-          proxy.position.y = item.dimsM.heightM / 2;
-          proxy.userData.itemId = item.id;
-          group.add(proxy);
+          group.add(proxyBox(item));
           syncPlacements(s);
           syncSelection(s);
         },
@@ -458,9 +469,9 @@ export default function Viewer3D({ room, items, placements, selectedId, onSelect
           Fit room
         </button>
       </div>
-      {loadError ? (
+      {loadError && items.some((i) => i.id === loadError.itemId) ? (
         <div className="notice" style={{ position: "absolute", left: 12, bottom: 12, maxWidth: 380 }} role="alert">
-          {loadError}
+          {loadError.message}
         </div>
       ) : null}
     </div>

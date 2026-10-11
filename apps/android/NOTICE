@@ -1,0 +1,9 @@
+RoomRelay Android app — third-party notices
+
+Object detection model (downloaded at build time by :app:downloadDetectorModel, not committed)
+  Model:   EfficientDet-Lite0 int8 (COCO), MediaPipe model zoo
+  Source:  https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/int8/1/efficientdet_lite0.tflite
+  License: Apache License 2.0 (https://www.apache.org/licenses/LICENSE-2.0)
+           per https://www.kaggle.com/models/tensorflow/efficientdet/tfLite/lite0-detection
+           and https://github.com/google/automl/blob/master/LICENSE
+  SHA-256: 0720bf247bd76e6594ea28fa9c6f7c5242be774818997dbbeffc4da460c723bb

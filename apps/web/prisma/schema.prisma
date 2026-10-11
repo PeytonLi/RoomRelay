@@ -547,3 +547,42 @@ model WebhookEvent {
   @@index([processingState, receivedAt])
   @@map("paypal_webhook_events")
 }
+
+// ---- Job queue (asset worker slice). Owned by the jobs slice; no relations
+// to other models on purpose: subjects are referenced by type/id/version.
+enum JobStatus {
+  QUEUED
+  RUNNING
+  SUCCEEDED
+  FAILED
+  CANCELLED
+  SUPERSEDED
+}
+
+model Job {
+  id                String    @id @default(dbgenerated("(gen_random_uuid())::text"))
+  type              String
+  stage             String
+  subjectType       String    @map("subject_type")
+  subjectId         String    @map("subject_id")
+  subjectVersion    Int       @map("subject_version")
+  idempotencyKey    String    @unique @map("idempotency_key")
+  status            JobStatus @default(QUEUED)
+  attempts          Int       @default(0)
+  maxAttempts       Int       @default(3) @map("max_attempts")
+  leaseOwner        String?   @map("lease_owner")
+  leaseToken        String?   @map("lease_token")
+  leaseExpiresAt    DateTime? @map("lease_expires_at") @db.Timestamptz(3)
+  runAfter          DateTime  @default(now()) @map("run_after") @db.Timestamptz(3)
+  inputRef          Json?     @map("input_ref")
+  outputRef         Json?     @map("output_ref")
+  reason            String?
+  cancelRequestedAt DateTime? @map("cancel_requested_at") @db.Timestamptz(3)
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime  @default(now()) @map("updated_at") @db.Timestamptz(3)
+  finishedAt        DateTime? @map("finished_at") @db.Timestamptz(3)
+
+  @@index([status, runAfter])
+  @@index([subjectType, subjectId, subjectVersion])
+  @@map("jobs")
+}

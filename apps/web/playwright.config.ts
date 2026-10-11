@@ -28,6 +28,9 @@ export default defineConfig({
       PAYPAL_CLIENT_SECRET: "",
       PAYPAL_WEBHOOK_ID: "",
       PAYPAL_MERCHANT_ID: "",
+      AI_PROVIDER: "",
+      AI_API_KEY: "",
+      AI_TEXT_MODEL: "",
     },
   },
 });

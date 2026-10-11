@@ -204,10 +204,20 @@ async function submitRefund(
     if (refund.status === "FAILED") {
       throw new PaymentError("REFUND_NOT_ALLOWED", "Refund previously failed");
     }
-    const updated = await tx.refund.update({
-      where: { id: refund.id },
+    // Atomic claim: only the caller that transitions the refund out of a
+    // submittable status submits to the provider. Concurrent callers lose
+    // the race and observe the already-claimed refund instead of
+    // double-submitting.
+    const claimed = await tx.refund.updateMany({
+      where: { id: refund.id, status: { in: resume ? ["STAGED", "SUBMITTED", "RECONCILING"] : ["STAGED"] } },
       data: { status: "SUBMITTED", attempts: { increment: 1 }, nextAttemptAt: null },
     });
+    if (claimed.count === 0) {
+      const order = await tx.paymentOrder.findUniqueOrThrow({ where: { id: refund.orderId } });
+      const current = await tx.refund.findUniqueOrThrow({ where: { id: refund.id } });
+      return { refund: current, order, submit: false };
+    }
+    const updated = await tx.refund.findUniqueOrThrow({ where: { id: refund.id } });
     const order = await tx.paymentOrder.findUniqueOrThrow({ where: { id: refund.orderId } });
     return { refund: updated, order, submit: true };
   });

@@ -42,3 +42,21 @@ pnpm paypal:sandbox-smoke     # prints a no-credentials skip unless sandbox cred
 
 The Prisma schema and `prisma.config.ts` live in `apps/web/`; generated client
 output goes to `apps/web/lib/generated/prisma` (gitignored).
+
+## Android probe (T-002)
+
+`apps/android` is a standalone Kotlin/Compose/ARCore feasibility probe for the
+Samsung Galaxy S24 (AR Required, `com.roomrelay.app`). It shows ARCore/depth
+capability, measures point-to-point distance against a tape (floor / table edge,
+~1 m / ~3 m, 3 trials each), records a 60-second tracking/depth/thermal log and
+exports a schema v2 JSON report through the Android sharesheet. It makes no
+network calls and saves no camera images or depth buffers.
+
+```sh
+cd apps/android
+./gradlew :app:assembleDebug :app:testDebugUnitTest :app:lintDebug   # JDK 17, Android SDK platform 37 + build-tools 36.0.0
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+```
+
+CI (`android` job) uploads the debug APK as the `app-debug-apk` artifact on every
+run. No on-device result exists until the probe is run on a real S24.
