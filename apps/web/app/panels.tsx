@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { inspectGlb } from "@roomrelay/assets";
 import { normalizeItem, toMeters, type LayoutResult, type LinearUnit, type Placement } from "@roomrelay/spatial";
 import type { ViewerItem } from "@/lib/viewer-types";
@@ -81,42 +81,35 @@ export function PlacementControls({
   onReset: () => void;
 }) {
   const deg = (placement.yawRad * 180) / Math.PI;
-  const num = (v: string, fallback: number) => {
-    const n = Number(v);
-    return Number.isFinite(n) ? n : fallback;
-  };
   return (
     <div className="card" data-testid="placement-controls">
       <h2>Placement</h2>
       <div className="field-row">
         <label htmlFor="in-x">X (m)</label>
-        <input
+        <DraftInput
           id="in-x"
-          data-testid="input-x"
-          type="number"
-          step={0.05}
-          value={placement.xM.toFixed(3)}
-          onChange={(e) => onChange({ ...placement, xM: num(e.target.value, placement.xM) })}
+          testid="input-x"
+          committed={placement.xM}
+          format={(v) => v.toFixed(3)}
+          onCommit={(n) => onChange({ ...placement, xM: n })}
         />
         <label htmlFor="in-z">Z (m)</label>
-        <input
+        <DraftInput
           id="in-z"
-          data-testid="input-z"
-          type="number"
-          step={0.05}
-          value={placement.zM.toFixed(3)}
-          onChange={(e) => onChange({ ...placement, zM: num(e.target.value, placement.zM) })}
+          testid="input-z"
+          committed={placement.zM}
+          format={(v) => v.toFixed(3)}
+          onCommit={(n) => onChange({ ...placement, zM: n })}
         />
       </div>
       <div className="field-row">
         <label htmlFor="in-yaw">Yaw (°)</label>
-        <input
+        <DraftInput
           id="in-yaw"
-          data-testid="input-yaw"
-          type="number"
-          step={15}
-          value={deg.toFixed(1)}
-          onChange={(e) => onChange({ ...placement, yawRad: (num(e.target.value, deg) * Math.PI) / 180 })}
+          testid="input-yaw"
+          committed={deg}
+          format={(v) => v.toFixed(1)}
+          onCommit={(n) => onChange({ ...placement, yawRad: (n * Math.PI) / 180 })}
         />
         <button className="btn" onClick={onReset} data-testid="reset-placement">
           Reset placement
@@ -125,6 +118,81 @@ export function PlacementControls({
       <div className="kbd-hint">Click the model to drag it on the floor. Arrows move ±0.05 m; Q/E rotate ±15°.</div>
       <div className="muted" style={{ marginTop: 4 }}>{item.title}</div>
     </div>
+  );
+}
+
+/**
+ * Numeric input that keeps a local draft string while focused: valid drafts
+ * commit live to the placement, invalid drafts show aria-invalid, and the
+ * field re-syncs to the formatted committed value on blur/Enter or whenever
+ * the committed value changes externally while unfocused.
+ */
+function DraftInput({
+  id,
+  testid,
+  committed,
+  format,
+  onCommit,
+}: {
+  id: string;
+  testid: string;
+  committed: number;
+  format: (v: number) => string;
+  onCommit: (n: number) => void;
+}) {
+  const [draft, setDraft] = useState(() => format(committed));
+  const [focused, setFocused] = useState(false);
+  const [invalid, setInvalid] = useState(false);
+
+  // External changes (drag, keyboard nudges, reset, item switch) re-sync the
+  // field only while it isn't focused.
+  useEffect(() => {
+    if (!focused) {
+      setDraft(format(committed));
+      setInvalid(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [committed, focused]);
+
+  const commit = (raw: string) => {
+    const n = Number(raw);
+    if (raw.trim() !== "" && Number.isFinite(n)) {
+      setInvalid(false);
+      onCommit(n);
+    } else {
+      setInvalid(true);
+    }
+  };
+
+  const resync = () => {
+    setDraft(format(committed));
+    setInvalid(false);
+  };
+
+  return (
+    <input
+      id={id}
+      data-testid={testid}
+      type="number"
+      step={id === "in-yaw" ? 15 : 0.05}
+      value={draft}
+      aria-invalid={invalid || undefined}
+      onFocus={() => setFocused(true)}
+      onChange={(e) => {
+        setDraft(e.target.value);
+        commit(e.target.value);
+      }}
+      onBlur={() => {
+        setFocused(false);
+        resync();
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") {
+          resync();
+          (e.target as HTMLInputElement).blur();
+        }
+      }}
+    />
   );
 }
 
