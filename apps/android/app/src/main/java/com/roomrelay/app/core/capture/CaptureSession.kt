@@ -9,6 +9,8 @@ enum class CaptureAxis { WIDTH, DEPTH, HEIGHT }
 
 enum class DimensionSource { USER_MEASURED, ARCORE_ESTIMATED }
 
+enum class CategorySource { MODEL_DETECTED, USER_MANUAL }
+
 @Serializable
 data class DimensionMeasurement(
     val axis: CaptureAxis,
@@ -45,6 +47,7 @@ data class DetectionEvidence(
 data class CapturedItem(
     val localId: String,
     val category: RoomRelayCategory,
+    val categorySource: CategorySource,
     val categoryCocoLabel: String? = null,
     val categoryScore: Float? = null,
     val categoryModelId: String? = null,
@@ -89,8 +92,12 @@ fun CaptureSession.validateForUpload(): List<String> {
             }
             val item = items.firstOrNull()
             if (item != null) {
-                if (item.category == null) {
-                    errors += "The item has no category."
+                if (item.categorySource == CategorySource.MODEL_DETECTED &&
+                    (item.categoryCocoLabel == null ||
+                        item.categoryScore == null ||
+                        item.categoryModelId == null)
+                ) {
+                    errors += "The item is marked model-detected but is missing detection details."
                 }
                 CaptureAxis.entries.forEach { axis ->
                     val measurement = item.dimensions

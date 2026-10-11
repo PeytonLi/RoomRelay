@@ -68,16 +68,5 @@ val MODEL_DETECTABLE_CATEGORIES: Set<RoomRelayCategory> =
 val MANUAL_ONLY_CATEGORIES: Set<RoomRelayCategory> =
     RoomRelayCategory.entries.toSet() - MODEL_DETECTABLE_CATEGORIES
 
-/** Where a category assignment came from. */
-sealed interface CategoryProvenance {
-    data class ModelDetected(
-        val cocoLabel: String,
-        val score: Float,
-        val modelId: String,
-    ) : CategoryProvenance
-
-    data class UserManual(val freeTextLabel: String? = null) : CategoryProvenance
-}
-
 fun categoryFromCocoLabel(cocoLabel: String): RoomRelayCategory? =
     COCO_TO_CATEGORY[cocoLabel]

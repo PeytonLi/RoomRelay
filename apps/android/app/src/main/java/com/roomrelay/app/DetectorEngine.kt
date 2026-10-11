@@ -98,6 +98,9 @@ internal class DetectorEngine(
     @Volatile
     private var submittedNs = 0L
 
+    /** Last timestamp handed to detectAsync; submissions must increase. */
+    private var lastSubmittedTsMs = Long.MIN_VALUE
+
     private val closed = AtomicBoolean(false)
 
     @Volatile
@@ -106,13 +109,16 @@ internal class DetectorEngine(
     @Volatile
     private var pendingFrame: PendingFrame? = null
 
+    // Reused across frames; safe because the gate is single-flight and the
+    // executor is single-threaded.
+    private var argbReuse: com.roomrelay.app.core.inference.ArgbImage? = null
+    private var bitmap: Bitmap? = null
+
     private class PendingFrame(
         val image: YuvImage,
         val frameTimeNs: Long,
         val imageWidth: Int,
         val imageHeight: Int,
-        var argbReuse: com.roomrelay.app.core.inference.ArgbImage? = null,
-        var bitmap: Bitmap? = null,
     )
 
     /**
@@ -135,6 +141,7 @@ internal class DetectorEngine(
                 })
                 .setErrorListener(ErrorListener { error ->
                     telemetry.recordInferenceError()
+                    inFlight = null
                     gate.release()
                 })
                 .build()
@@ -171,8 +178,10 @@ internal class DetectorEngine(
      */
     fun onGlFrame(frame: Frame, nowNs: Long) {
         if (tracker.paused || closed.get()) return
+        val timeoutsBefore = gate.timeoutCount
         val result = gate.tryAcquire(nowNs)
         telemetry.recordGate(result)
+        if (gate.timeoutCount != timeoutsBefore) telemetry.recordInferenceTimeout()
         if (result != GateResult.SUBMITTED) return
         val image = try {
             frame.acquireCameraImage()
@@ -220,16 +229,16 @@ internal class DetectorEngine(
         val converted = YuvToArgb.convert(
             pending.image,
             rotation,
-            reuse = pending.argbReuse,
+            reuse = argbReuse,
         )
-        pending.argbReuse = converted.image
-        val bitmap = pending.bitmap?.takeIf {
+        argbReuse = converted.image
+        val bitmap = bitmap?.takeIf {
             it.width == converted.image.width && it.height == converted.image.height
         } ?: Bitmap.createBitmap(
             converted.image.width,
             converted.image.height,
             Bitmap.Config.ARGB_8888,
-        ).also { pending.bitmap = it }
+        ).also { bitmap = it }
         bitmap.setPixels(
             converted.image.pixels, 0, converted.image.width,
             0, 0, converted.image.width, converted.image.height,
@@ -240,11 +249,17 @@ internal class DetectorEngine(
             gate.release()
             return
         }
-        submittedNs = System.nanoTime()
-        // Timestamps handed to detectAsync must be strictly increasing; the
-        // ARCore frame timestamp is, and the gate keeps submissions serial.
+        // Timestamps handed to detectAsync must be strictly increasing.
         val tsMs = pending.frameTimeNs / 1_000_000L
-        val frameRef = PendingResult(
+        if (tsMs <= lastSubmittedTsMs) {
+            telemetry.recordSkippedStaleTimestamp()
+            gate.release()
+            return
+        }
+        submittedNs = System.nanoTime()
+        lastSubmittedTsMs = tsMs
+        inFlight = PendingResult(
+            tsMs = tsMs,
             imageWidth = pending.imageWidth,
             imageHeight = pending.imageHeight,
             scale = converted.scale,
@@ -252,17 +267,17 @@ internal class DetectorEngine(
             frameTimeNs = pending.frameTimeNs,
             submitNs = submittedNs,
         )
-        pendingResults[tsMs] = frameRef
         try {
             detector.detectAsync(BitmapImageBuilder(bitmap).build(), tsMs)
         } catch (exception: Exception) {
             telemetry.recordInferenceError()
-            pendingResults.remove(tsMs)
+            inFlight = null
             gate.release()
         }
     }
 
     private class PendingResult(
+        val tsMs: Long,
         val imageWidth: Int,
         val imageHeight: Int,
         val scale: Float,
@@ -271,15 +286,19 @@ internal class DetectorEngine(
         val submitNs: Long,
     )
 
-    private val pendingResults = java.util.concurrent.ConcurrentHashMap<Long, PendingResult>()
+    /** Single-flight: at most one submission is awaiting a result. */
+    @Volatile
+    private var inFlight: PendingResult? = null
 
     private fun onDetectorResult(result: ObjectDetectorResult) {
         val nowNs = System.nanoTime()
-        val pending = pendingResults.remove(result.timestampMs())
-            ?: pendingResults.values.minByOrNull { it.submitNs }
-                .also { pendingResults.remove(it?.submitNs) }
+        val pending = inFlight
+        // A result from a submission the watchdog already timed out does not
+        // match the current in-flight frame and must be ignored.
+        if (pending == null || pending.tsMs != result.timestampMs()) return
+        inFlight = null
         gate.release()
-        telemetry.recordResult(nowNs - (pending?.submitNs ?: nowNs), nowNs)
+        telemetry.recordResult(nowNs - pending.submitNs, nowNs)
         val detections = result.detections().mapNotNull { detection ->
             val label = detection.categories().firstOrNull()?.categoryName() ?: return@mapNotNull null
             DetectionBox(
@@ -299,30 +318,28 @@ internal class DetectorEngine(
             tracks.filter { it.state != TrackState.TENTATIVE }
                 .mapNotNull { categoryFromCocoLabel(it.cocoLabel) },
         )
-        if (pending != null) {
-            val promoted = tracks.filter { it.state == TrackState.STABLE || it.state == TrackState.AMBIGUOUS }
-            val imageBoxes = promoted.map { track ->
-                track to mapBoxToImagePixels(
-                    track.box,
-                    pending.rotationDeg,
-                    pending.imageWidth,
-                    pending.imageHeight,
-                    pending.scale,
-                )
-            }
-            onResult?.invoke(
-                DetectFrameResult(
-                    tracks = tracks,
-                    bitmapBoxes = promoted.map { it to it.box },
-                    imageBoxes = imageBoxes,
-                    imageWidth = pending.imageWidth,
-                    imageHeight = pending.imageHeight,
-                    scale = pending.scale,
-                    rotationDeg = pending.rotationDeg,
-                    frameTimeNs = pending.frameTimeNs,
-                ),
+        val promoted = tracks.filter { it.state == TrackState.STABLE || it.state == TrackState.AMBIGUOUS }
+        val imageBoxes = promoted.map { track ->
+            track to mapBoxToImagePixels(
+                track.box,
+                pending.rotationDeg,
+                pending.imageWidth,
+                pending.imageHeight,
+                pending.scale,
             )
         }
+        onResult?.invoke(
+            DetectFrameResult(
+                tracks = tracks,
+                bitmapBoxes = promoted.map { it to it.box },
+                imageBoxes = imageBoxes,
+                imageWidth = pending.imageWidth,
+                imageHeight = pending.imageHeight,
+                scale = pending.scale,
+                rotationDeg = pending.rotationDeg,
+                frameTimeNs = pending.frameTimeNs,
+            ),
+        )
     }
 
     private fun copyPlanes(image: Image): YuvImage {

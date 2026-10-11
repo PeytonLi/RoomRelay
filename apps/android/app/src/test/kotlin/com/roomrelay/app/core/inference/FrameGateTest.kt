@@ -38,6 +38,28 @@ class FrameGateTest {
     }
 
     @Test
+    fun `busy watchdog force-releases a wedged submission`() {
+        var now = 0L
+        val gate = FrameGate(100L, clock = { now }, busyTimeoutNs = 1_000L)
+        assertEquals(GateResult.SUBMITTED, gate.tryAcquire())
+        // Still inside the timeout: dropped, not force-released.
+        now = 500L
+        assertEquals(GateResult.DROPPED_BUSY, gate.tryAcquire())
+        assertEquals(0L, gate.timeoutCount)
+        // Past the timeout: the frame is submitted and the timeout counted.
+        now = 1_500L
+        assertEquals(GateResult.SUBMITTED, gate.tryAcquire())
+        assertEquals(1L, gate.timeoutCount)
+        // The new submission is busy; releasing it works normally.
+        now = 1_600L
+        assertEquals(GateResult.DROPPED_BUSY, gate.tryAcquire())
+        gate.release()
+        now = 1_700L
+        assertEquals(GateResult.SUBMITTED, gate.tryAcquire())
+        assertEquals(1L, gate.timeoutCount)
+    }
+
+    @Test
     fun `thermal policy intervals`() {
         assertEquals(200L, ThermalPolicy.minIntervalMs(ThermalStatus.NONE))
         assertEquals(200L, ThermalPolicy.minIntervalMs(ThermalStatus.LIGHT))

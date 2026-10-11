@@ -93,42 +93,60 @@ class UploadClient(
         return job
     }
 
-    private fun pendingJobs(): List<UploadJob> {
+    /** Statuses that can resume once config and a token are both available. */
+    private val resumableStatuses = setOf(
+        UploadStatus.PENDING,
+        UploadStatus.RUNNING,
+        UploadStatus.RETRY_SCHEDULED,
+        UploadStatus.SYNC_UNAVAILABLE,
+        UploadStatus.AUTH_UNAVAILABLE,
+        UploadStatus.AUTH_REQUIRED,
+    )
+
+    private fun pendingJobs(force: Boolean = false): List<UploadJob> {
         val now = clock.nowMs()
         return store.list().filter {
-            it.status == UploadStatus.PENDING || it.status == UploadStatus.RUNNING ||
-                (it.status == UploadStatus.RETRY_SCHEDULED && (it.nextAttemptAtMs ?: 0L) <= now)
+            when (it.status) {
+                UploadStatus.PENDING, UploadStatus.RUNNING,
+                UploadStatus.SYNC_UNAVAILABLE, UploadStatus.AUTH_UNAVAILABLE,
+                UploadStatus.AUTH_REQUIRED,
+                -> true
+                UploadStatus.RETRY_SCHEDULED ->
+                    force || (it.nextAttemptAtMs ?: 0L) <= now
+                else -> false
+            }
         }
     }
 
-    /** Marks queued jobs unavailable with a plain-language reason. */
+    /** Marks resumable jobs unavailable with a plain-language reason. */
     private fun markUnavailable(reason: String, status: UploadStatus): List<UploadJob> =
         store.list().map { job ->
-            if (job.status == UploadStatus.PENDING || job.status == UploadStatus.RETRY_SCHEDULED ||
-                job.status == UploadStatus.RUNNING
-            ) {
+            if (job.status in resumableStatuses) {
                 save(job.copy(status = status, lastError = reason, updatedAtMs = clock.nowMs()))
             } else {
                 job
             }
         }
 
-    /** Processes all due pending jobs; returns the refreshed job list. */
-    fun runPending(): List<UploadJob> {
+    /**
+     * Processes all due pending jobs; returns the refreshed job list.
+     * [force] ignores RETRY_SCHEDULED nextAttemptAtMs (the "Sync now" path).
+     */
+    fun runPending(force: Boolean = false): List<UploadJob> {
         val config = configProvider()
         if (config !is SyncConfig.Available) {
             val reason = (config as? SyncConfig.Unavailable)?.reason ?: "Sync unavailable"
-            if (pendingJobs().isEmpty()) return store.list()
-            return markUnavailable(reason, UploadStatus.AUTH_UNAVAILABLE)
+            if (pendingJobs(force).isEmpty()) return store.list()
+            return markUnavailable(reason, UploadStatus.SYNC_UNAVAILABLE)
         }
         val token = when (val t = auth.currentToken()) {
             is TokenResult.Available -> t.token
             is TokenResult.Unavailable -> {
-                if (pendingJobs().isEmpty()) return store.list()
+                if (pendingJobs(force).isEmpty()) return store.list()
                 return markUnavailable(t.reason, UploadStatus.AUTH_UNAVAILABLE)
             }
         }
-        pendingJobs().forEach { runJob(it, config.baseUrl, token) }
+        pendingJobs(force).forEach { runJob(it, config.baseUrl, token) }
         return store.list()
     }
 
@@ -279,7 +297,7 @@ class UploadClient(
             .header("Authorization", "Bearer $token")
 
     private sealed interface HttpResult {
-        data class Ok(val headers: Map<String, String>, val body: String) : HttpResult
+        data class Ok(val etag: String?, val body: String) : HttpResult
 
         data class Failure(
             val code: Int,
@@ -294,10 +312,8 @@ class UploadClient(
         http.newCall(request).execute().use { response ->
             val body = response.body?.string().orEmpty()
             if (response.isSuccessful) {
-                val headers = response.headers.names().associateWith {
-                    response.header(it).orEmpty()
-                }
-                HttpResult.Ok(headers, body)
+                // header() is case-insensitive, so lowercase 'etag:' works too.
+                HttpResult.Ok(response.header("ETag"), body)
             } else {
                 HttpResult.Failure(
                     response.code,
@@ -441,7 +457,7 @@ class UploadClient(
                 .build()
             when (val result = execute(request)) {
                 is HttpResult.Ok -> {
-                    parts[index] = part.copy(done = true, etag = result.headers["etag"] ?: result.headers["ETag"])
+                    parts[index] = part.copy(done = true, etag = result.etag)
                     save(job.copy(parts = parts.toList(), updatedAtMs = clock.nowMs()))
                 }
                 is HttpResult.Failure ->

@@ -170,10 +170,11 @@ internal class ProbeController(private val activity: ComponentActivity) {
     private val itemRegistry = ConfirmedItemRegistry()
     private val draftStore = CaptureDraftStore(File(activity.filesDir, "drafts"))
     private val uploadStore = FileUploadQueueStore(File(activity.filesDir, "upload-queue"))
+    private val authTokenProvider = UnavailableAuthTokenProvider()
     private val uploadClient = UploadClient(
         http = OkHttpClient(),
         store = uploadStore,
-        auth = UnavailableAuthTokenProvider(),
+        auth = authTokenProvider,
         configProvider = { SyncConfig.parse(BuildConfig.ROOMRELAY_API_BASE_URL) },
     )
     private val syncExecutor = Executors.newSingleThreadExecutor()
@@ -361,20 +362,31 @@ internal class ProbeController(private val activity: ComponentActivity) {
         }
     }
 
+    private fun thermalStatusFromInt(status: Int): ThermalStatus = when (status) {
+        PowerManager.THERMAL_STATUS_NONE -> ThermalStatus.NONE
+        PowerManager.THERMAL_STATUS_LIGHT -> ThermalStatus.LIGHT
+        PowerManager.THERMAL_STATUS_MODERATE -> ThermalStatus.MODERATE
+        PowerManager.THERMAL_STATUS_SEVERE -> ThermalStatus.SEVERE
+        PowerManager.THERMAL_STATUS_CRITICAL -> ThermalStatus.CRITICAL
+        PowerManager.THERMAL_STATUS_EMERGENCY -> ThermalStatus.EMERGENCY
+        PowerManager.THERMAL_STATUS_SHUTDOWN -> ThermalStatus.SHUTDOWN
+        else -> ThermalStatus.UNKNOWN
+    }
+
     private fun registerThermalListener() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
         val powerManager = activity.getSystemService(PowerManager::class.java) ?: return
+        // Seed engine + UI with the current status so telemetry has a
+        // thermalStart even when the status never changes.
+        applyThermalStatus(thermalStatusFromInt(powerManager.currentThermalStatus))
         val listener = PowerManager.OnThermalStatusChangedListener { status ->
-            val mapped = when (status) {
-                PowerManager.THERMAL_STATUS_NONE -> ThermalStatus.NONE
-                PowerManager.THERMAL_STATUS_LIGHT -> ThermalStatus.LIGHT
-                PowerManager.THERMAL_STATUS_MODERATE -> ThermalStatus.MODERATE
-                PowerManager.THERMAL_STATUS_SEVERE -> ThermalStatus.SEVERE
-                PowerManager.THERMAL_STATUS_CRITICAL -> ThermalStatus.CRITICAL
-                PowerManager.THERMAL_STATUS_EMERGENCY -> ThermalStatus.EMERGENCY
-                PowerManager.THERMAL_STATUS_SHUTDOWN -> ThermalStatus.SHUTDOWN
-                else -> ThermalStatus.UNKNOWN
-            }
+            applyThermalStatus(thermalStatusFromInt(status))
+        }
+        powerManager.addThermalStatusListener(listener)
+        thermalListener = listener
+    }
+
+    private fun applyThermalStatus(mapped: ThermalStatus) {
             detectorEngine.setThermalStatus(mapped, SystemClock.elapsedRealtimeNanos())
             handler.post {
                 mutableState.update { state ->
@@ -393,10 +405,7 @@ internal class ProbeController(private val activity: ComponentActivity) {
                         ),
                     )
                 }
-            }
         }
-        powerManager.addThermalStatusListener(listener)
-        thermalListener = listener
     }
 
     private fun rotationToDegrees(rotation: Int): Int = when (rotation) {
@@ -956,6 +965,13 @@ internal class ProbeController(private val activity: ComponentActivity) {
     /** Ask dialog: the tapped candidate is the same as an existing item. */
     fun resolveAskSame(itemId: Long) {
         dismissAsk(detach = true)
+        mutableState.update {
+            it.copy(
+                detect = it.detect.copy(
+                    message = "Kept as item $itemId — no duplicate added.",
+                ),
+            )
+        }
     }
 
     /** Ask dialog: the tapped candidate is a different, new item. */
@@ -995,6 +1011,7 @@ internal class ProbeController(private val activity: ComponentActivity) {
         val captured = CapturedItem(
             localId = localId,
             category = category,
+            categorySource = com.roomrelay.app.core.capture.CategorySource.MODEL_DETECTED,
             categoryCocoLabel = pending.cocoLabel,
             categoryScore = pending.score,
             categoryModelId = DETECTOR_MODEL_ID,
@@ -1028,6 +1045,7 @@ internal class ProbeController(private val activity: ComponentActivity) {
         val captured = CapturedItem(
             localId = localId,
             category = category,
+            categorySource = com.roomrelay.app.core.capture.CategorySource.USER_MANUAL,
             freeTextLabel = freeText?.trim()?.ifBlank { null },
         )
         upsertItemDraft(captured)
@@ -1184,14 +1202,15 @@ internal class ProbeController(private val activity: ComponentActivity) {
         runPendingUploads()
     }
 
+    /** "Sync now": retries due and scheduled jobs immediately. */
     fun syncNow() {
-        runPendingUploads()
+        runPendingUploads(force = true)
     }
 
-    private fun runPendingUploads() {
+    private fun runPendingUploads(force: Boolean = false) {
         syncExecutor.execute {
             val jobs = try {
-                uploadClient.runPending()
+                uploadClient.runPending(force)
             } catch (_: Exception) {
                 uploadStore.list()
             }
@@ -1209,7 +1228,11 @@ internal class ProbeController(private val activity: ComponentActivity) {
     private fun syncBannerText(): String? {
         val config = SyncConfig.parse(BuildConfig.ROOMRELAY_API_BASE_URL)
         if (config is SyncConfig.Unavailable) return "Sync unavailable: ${config.reason}."
-        return "Sync unavailable: sign-in is not set up in this build."
+        return when (val token = authTokenProvider.currentToken()) {
+            is com.roomrelay.app.core.sync.TokenResult.Available -> null
+            is com.roomrelay.app.core.sync.TokenResult.Unavailable ->
+                "Sync unavailable: ${token.reason}."
+        }
     }
 
     fun uploadStatusText(job: UploadJob): String = when (job.status) {
@@ -1217,7 +1240,8 @@ internal class ProbeController(private val activity: ComponentActivity) {
         UploadStatus.RUNNING -> "Uploading"
         UploadStatus.RETRY_SCHEDULED -> "Will retry — ${job.lastError ?: "network problem"}"
         UploadStatus.AUTH_REQUIRED -> "Sign-in needed before upload"
-        UploadStatus.AUTH_UNAVAILABLE -> job.lastError ?: "Sync unavailable"
+        UploadStatus.AUTH_UNAVAILABLE -> job.lastError ?: "Sign-in unavailable"
+        UploadStatus.SYNC_UNAVAILABLE -> job.lastError ?: "Sync unavailable"
         UploadStatus.FORBIDDEN -> "This capture belongs to a different account"
         UploadStatus.NOT_FOUND -> "Capture no longer exists on the server"
         UploadStatus.FAILED -> "Upload failed: ${job.lastError ?: "unknown error"}"

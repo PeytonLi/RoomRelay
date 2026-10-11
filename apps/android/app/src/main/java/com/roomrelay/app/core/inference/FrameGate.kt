@@ -15,11 +15,18 @@ enum class GateResult {
 class FrameGate(
     private val minIntervalNs: Long,
     private val clock: () -> Long = { System.nanoTime() },
+    private val busyTimeoutNs: Long = DEFAULT_BUSY_TIMEOUT_NS,
 ) {
     @Volatile
     private var busy = false
 
+    private var busySinceNs = 0L
     private var lastSubmitNs = Long.MIN_VALUE / 2
+
+    /** Number of times a stuck submission was force-released by the watchdog. */
+    @Volatile
+    var timeoutCount = 0L
+        private set
 
     @Volatile
     var paused: Boolean = false
@@ -32,9 +39,18 @@ class FrameGate(
 
     fun tryAcquire(nowNs: Long = clock()): GateResult {
         if (paused) return GateResult.SKIPPED_PAUSED
-        if (busy) return GateResult.DROPPED_BUSY
+        if (busy) {
+            // Watchdog: a wedged detector call must not stall the pipeline.
+            if (nowNs - busySinceNs > busyTimeoutNs) {
+                busy = false
+                timeoutCount += 1
+            } else {
+                return GateResult.DROPPED_BUSY
+            }
+        }
         if (nowNs - lastSubmitNs < effectiveMinIntervalNs()) return GateResult.SKIPPED_THROTTLE
         busy = true
+        busySinceNs = nowNs
         lastSubmitNs = nowNs
         return GateResult.SUBMITTED
     }
@@ -45,6 +61,10 @@ class FrameGate(
     }
 
     fun isBusy(): Boolean = busy
+
+    companion object {
+        const val DEFAULT_BUSY_TIMEOUT_NS = 2_000_000_000L
+    }
 }
 
 enum class ThermalStatus {

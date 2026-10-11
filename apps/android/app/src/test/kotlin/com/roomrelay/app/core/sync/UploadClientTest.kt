@@ -307,7 +307,67 @@ class UploadClientTest {
         enqueuePayload(c)
         c.runPending()
         assertEquals(0, server.requestCount)
-        assertEquals(UploadStatus.AUTH_UNAVAILABLE, store.list().single().status)
+        assertEquals(UploadStatus.SYNC_UNAVAILABLE, store.list().single().status)
+    }
+
+    @Test
+    fun `auth unavailable job resumes once a token exists`() {
+        val unavailable = client(
+            auth = UnavailableAuthTokenProvider("Sign-in is not set up in this build"),
+        )
+        val job = enqueuePayload(unavailable)
+        unavailable.runPending()
+        assertEquals(0, server.requestCount)
+        assertEquals(UploadStatus.AUTH_UNAVAILABLE, store.load(job.jobId)?.status)
+        // A new client on the same dir with a working token resumes it.
+        respondHappy(3)
+        client().runPending()
+        assertEquals(UploadStatus.COMPLETED, store.load(job.jobId)?.status)
+        val creates = (0 until server.requestCount).map {
+            server.takeRequest(1, TimeUnit.SECONDS)!!
+        }.count { it.path == "/api/v1/captures" }
+        assertEquals(1, creates)
+    }
+
+    @Test
+    fun `force run ignores nextAttemptAtMs`() {
+        val job = enqueuePayload(client())
+        // Exhaust attempts so the job lands in RETRY_SCHEDULED in the future.
+        repeat(5) {
+            server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_DURING_REQUEST_BODY))
+        }
+        client().runPending()
+        assertEquals(UploadStatus.RETRY_SCHEDULED, store.load(job.jobId)?.status)
+        assertTrue(store.load(job.jobId)!!.nextAttemptAtMs!! > nowMs)
+        // Non-forced run leaves it alone.
+        val before = server.requestCount
+        client().runPending()
+        assertEquals(before, server.requestCount)
+        // Forced run ignores the scheduled time and completes.
+        respondHappy(3)
+        client().runPending(force = true)
+        assertEquals(UploadStatus.COMPLETED, store.load(job.jobId)?.status)
+    }
+
+    @Test
+    fun `etag header is read case-insensitively`() {
+        val job = enqueuePayload(client())
+        server.enqueue(MockResponse().setBody("""{"id":"srv-1"}"""))
+        server.enqueue(
+            MockResponse().setBody(
+                """{"assetId":"a","parts":[{"partNumber":1,"url":"${server.url("/p1")}"}],"completedParts":[]}""",
+            ),
+        )
+        server.enqueue(MockResponse().addHeader("etag", "lower-case-etag"))
+        server.enqueue(MockResponse().setBody("{}"))
+        client().runPending()
+        assertEquals(UploadStatus.COMPLETED, store.load(job.jobId)?.status)
+        assertEquals("lower-case-etag", store.load(job.jobId)?.parts?.single()?.etag)
+        // And the recorded etag reaches the finalize body.
+        val finalize = (0 until server.requestCount).map {
+            server.takeRequest(1, TimeUnit.SECONDS)!!
+        }.last { it.path == "/api/v1/captures/srv-1/finalize" }
+        assertTrue(finalize.body.readUtf8().contains("lower-case-etag"))
     }
 
     @Test

@@ -30,6 +30,7 @@ class CaptureValidationTest {
     private fun item(withDims: Boolean = true) = CapturedItem(
         localId = "i1",
         category = RoomRelayCategory.CHAIR,
+        categorySource = CategorySource.USER_MANUAL,
         dimensions = if (withDims) {
             listOf(dim(CaptureAxis.WIDTH), dim(CaptureAxis.DEPTH), dim(CaptureAxis.HEIGHT))
         } else {
@@ -86,6 +87,24 @@ class CaptureValidationTest {
         assertTrue(
             session(CaptureKind.ITEM, listOf(bad)).validateForUpload()
                 .any { it.contains("depth") },
+        )
+    }
+
+    @Test
+    fun `model detected item requires detection details`() {
+        val missing = item().copy(
+            categorySource = CategorySource.MODEL_DETECTED,
+            categoryCocoLabel = "chair",
+            categoryScore = null,
+            categoryModelId = null,
+        )
+        assertTrue(
+            session(CaptureKind.ITEM, listOf(missing)).validateForUpload()
+                .any { it.contains("detection details") },
+        )
+        val complete = missing.copy(categoryScore = 0.9f, categoryModelId = "m1")
+        assertTrue(
+            session(CaptureKind.ITEM, listOf(complete)).validateForUpload().isEmpty(),
         )
     }
 

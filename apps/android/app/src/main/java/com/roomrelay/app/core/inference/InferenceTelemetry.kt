@@ -9,6 +9,8 @@ data class InferenceTelemetrySnapshot(
     val droppedBusy: Long = 0,
     val skippedThrottle: Long = 0,
     val skippedPaused: Long = 0,
+    val skippedStaleTimestamp: Long = 0,
+    val inferenceTimeouts: Long = 0,
     val cameraImageNotYetAvailable: Long = 0,
     val cameraImageErrors: Map<String, Long> = emptyMap(),
     val inferenceErrors: Long = 0,
@@ -57,6 +59,8 @@ class InferenceTelemetry(
     private var droppedBusy = 0L
     private var skippedThrottle = 0L
     private var skippedPaused = 0L
+    private var skippedStaleTimestamp = 0L
+    private var inferenceTimeouts = 0L
     private var notYetAvailable = 0L
     private var inferenceErrors = 0L
     private val cameraImageErrors = LinkedHashMap<String, Long>()
@@ -85,6 +89,16 @@ class InferenceTelemetry(
                 GateResult.SKIPPED_PAUSED -> skippedPaused += 1
             }
         }
+    }
+
+    /** Frames skipped because their timestamp was not strictly increasing. */
+    fun recordSkippedStaleTimestamp() {
+        synchronized(lock) { skippedStaleTimestamp += 1 }
+    }
+
+    /** Gate watchdog fired: a submitted inference never came back. */
+    fun recordInferenceTimeout() {
+        synchronized(lock) { inferenceTimeouts += 1 }
     }
 
     fun recordCameraImageNotYetAvailable() {
@@ -161,6 +175,8 @@ class InferenceTelemetry(
             droppedBusy = droppedBusy,
             skippedThrottle = skippedThrottle,
             skippedPaused = skippedPaused,
+            skippedStaleTimestamp = skippedStaleTimestamp,
+            inferenceTimeouts = inferenceTimeouts,
             cameraImageNotYetAvailable = notYetAvailable,
             cameraImageErrors = cameraImageErrors.toMap(),
             inferenceErrors = inferenceErrors,

@@ -9,6 +9,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -20,6 +22,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -375,29 +378,27 @@ private fun DetectScreen(
             modifier = Modifier.fillMaxSize(),
             onRelease = controller::releaseGlView,
         )
-        androidx.compose.foundation.layout.Column(Modifier.fillMaxSize()) {
-            androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
-                // View-pixel boxes are mapped by the GL thread, so 1 px = 1 px.
-                val density = this.density
-                detect.overlayBoxes.forEach { box ->
-                    val color = when {
-                        box.ambiguous -> Color(0xFFFFA726)
-                        box.category != null -> Color(0xFF66BB6A)
-                        else -> Color(0xFF78909C)
-                    }
-                    drawRect(
-                        color = color,
-                        topLeft = androidx.compose.ui.geometry.Offset(
-                            box.viewRect.left * density,
-                            box.viewRect.top * density,
-                        ),
-                        size = androidx.compose.ui.geometry.Size(
-                            box.viewRect.width() * density,
-                            box.viewRect.height() * density,
-                        ),
-                        style = androidx.compose.ui.graphics.drawscope.Stroke(width = 3f),
-                    )
+        // transformCoordinates2d already returns view pixels and DrawScope
+        // draws in pixels, so boxes line up 1:1 with the GLSurfaceView.
+        androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
+            detect.overlayBoxes.forEach { box ->
+                val color = when {
+                    box.ambiguous -> Color(0xFFFFA726)
+                    box.category != null -> Color(0xFF66BB6A)
+                    else -> Color(0xFF78909C)
                 }
+                drawRect(
+                    color = color,
+                    topLeft = androidx.compose.ui.geometry.Offset(
+                        box.viewRect.left,
+                        box.viewRect.top,
+                    ),
+                    size = androidx.compose.ui.geometry.Size(
+                        box.viewRect.width(),
+                        box.viewRect.height(),
+                    ),
+                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = 3f),
+                )
             }
         }
         Column(
@@ -456,6 +457,7 @@ private fun DetectScreen(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ItemsScreen(state: ProbeUiState, controller: ProbeController) {
     var manualText by rememberSaveable { mutableStateOf("") }
@@ -483,30 +485,34 @@ private fun ItemsScreen(state: ProbeUiState, controller: ProbeController) {
                 ". Other furniture needs a manual label.",
             style = MaterialTheme.typography.bodySmall,
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedTextField(
-                value = manualCategory,
-                onValueChange = { manualCategory = it.uppercase() },
-                modifier = Modifier.weight(1f),
-                label = { Text("Manual category") },
-                placeholder = {
-                    Text(com.roomrelay.app.core.inference.MANUAL_ONLY_CATEGORIES
-                        .joinToString("/") { it.name.lowercase() })
-                },
-                singleLine = true,
-            )
-            OutlinedTextField(
-                value = manualText,
-                onValueChange = { manualText = it },
-                modifier = Modifier.weight(1f),
-                label = { Text("Label (optional)") },
-                singleLine = true,
-            )
+        // Selectable category list — free text here silently mapped typos to
+        // OTHER. Model-detectable categories are marked; manual-only ones
+        // still need a typed label below.
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            RoomRelayCategory.entries.forEach { category ->
+                val modelDetectable =
+                    category in com.roomrelay.app.core.inference.MODEL_DETECTABLE_CATEGORIES
+                FilterChip(
+                    selected = manualCategory == category.name,
+                    onClick = { manualCategory = category.name },
+                    label = {
+                        Text(
+                            category.name.lowercase() +
+                                if (modelDetectable) " (model can detect)" else "",
+                        )
+                    },
+                )
+            }
         }
+        OutlinedTextField(
+            value = manualText,
+            onValueChange = { manualText = it },
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text("Label (optional)") },
+            singleLine = true,
+        )
         Button(onClick = {
-            val category = runCatching { RoomRelayCategory.valueOf(manualCategory) }
-                .getOrNull() ?: RoomRelayCategory.OTHER
-            controller.addManualItem(category, manualText)
+            controller.addManualItem(RoomRelayCategory.valueOf(manualCategory), manualText)
             manualText = ""
         }) {
             Text("Add item manually")
@@ -524,7 +530,7 @@ private fun ItemsScreen(state: ProbeUiState, controller: ProbeController) {
                             "Item ${item.localId}: ${item.category.name.lowercase()}" +
                                 (item.freeTextLabel?.let { " ($it)" } ?: "") +
                                 (item.categoryCocoLabel?.let {
-                                    " · detected '$it' ${(item.categoryScore ?: 0f) * 100}%"
+                                    " · detected '$it' ${((item.categoryScore ?: 0f) * 100).toInt()}%"
                                 } ?: " · manual"),
                         )
                         CaptureAxis.entries.forEach { axis ->
@@ -565,16 +571,34 @@ private fun ItemsScreen(state: ProbeUiState, controller: ProbeController) {
                                 style = MaterialTheme.typography.bodySmall,
                             )
                         }
+                        val arDistanceCm = state.measure.distanceMeters?.let { it * 100.0 }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             CaptureAxis.entries.forEach { axis ->
-                                OutlinedButton(onClick = {
-                                    controller.confirmArEstimateDimension(
-                                        draft.clientCaptureId,
-                                        item.localId,
-                                        axis,
+                                OutlinedButton(
+                                    enabled = state.measure.hasBothAnchors && arDistanceCm != null,
+                                    onClick = {
+                                        controller.confirmArEstimateDimension(
+                                            draft.clientCaptureId,
+                                            item.localId,
+                                            axis,
+                                        )
+                                    },
+                                ) {
+                                    Text(
+                                        if (arDistanceCm != null) {
+                                            "Use AR ${formatCm(arDistanceCm)} as ${axis.name.lowercase()}"
+                                        } else {
+                                            "AR ${axis.name.lowercase()}"
+                                        },
                                     )
-                                }) { Text("AR ${axis.name.lowercase()}") }
+                                }
                             }
+                        }
+                        if (!state.measure.hasBothAnchors) {
+                            Text(
+                                "Set two points on the Measure tab",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
                         }
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

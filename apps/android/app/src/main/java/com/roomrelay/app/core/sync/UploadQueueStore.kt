@@ -12,6 +12,7 @@ enum class UploadStatus {
     RETRY_SCHEDULED,
     AUTH_REQUIRED,
     AUTH_UNAVAILABLE,
+    SYNC_UNAVAILABLE,
     FORBIDDEN,
     NOT_FOUND,
     FAILED,
