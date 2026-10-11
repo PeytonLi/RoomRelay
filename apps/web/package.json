@@ -16,6 +16,7 @@
     "@prisma/adapter-pg": "7.10.0",
     "@prisma/client": "7.10.0",
     "@roomrelay/assets": "workspace:*",
+    "@roomrelay/planning": "workspace:*",
     "@roomrelay/spatial": "workspace:*",
     "dotenv": "17.2.3",
     "next": "16.4.0",
