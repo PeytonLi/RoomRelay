@@ -54,9 +54,7 @@ jobs:
 
       - run: pnpm lint
 
-      # DB integration suites share one Postgres database and TRUNCATE the
-      # shared jobs table, so workspace tests must run serially.
-      - run: pnpm -r --workspace-concurrency=1 test
+      - run: pnpm -r test
 
       - run: pnpm --filter @roomrelay/web exec next build
 

@@ -438,4 +438,16 @@ databaseSuite("PgJobQueue integration", () => {
     expect(stats.oldestQueuedAgeSeconds).toBeLessThanOrEqual(30);
     expect(stats.expiredLeases).toBe(1);
   });
+
+  it("leases a job enqueued immediately before, 200 iterations", async () => {
+    // Regression: run_after is written as date_trunc('milliseconds', now()).
+    // Without the truncation, timestamptz(3) rounds up by <1ms and a lease in a
+    // fast-following transaction sees run_after in the future.
+    for (let i = 0; i < 200; i += 1) {
+      const type = `immediate-${i}`;
+      await queue.enqueue({ ...input(`immediate-${i}`), type });
+      const leased = await queue.lease({ workerId: "w", types: [type], leaseMs: 1000 });
+      expect(leased, `iteration ${i}`).not.toBeNull();
+    }
+  });
 });
