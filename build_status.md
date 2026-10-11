@@ -21,7 +21,7 @@ Updated: 2026-10-11. Phase: **M0 in progress: web foundation and synthetic viewe
 | 3D assets / reconstruction | IN_PROGRESS (PR #1) | Synthetic measured room fixture plus the public Khronos SheenChair (CC0, `APPROXIMATE_PROXY`, pinned SHA-256) in an interactive Three.js + 2D viewer with live fit checks and local GLB import. No real room or item scan has been imported yet. No reconstruction service exists. |
 | Asset validation / job queue | IN_PROGRESS (in review) | CPU slice only: `validateGlb` + `buildAssetManifest` (packages/assets), Postgres leased `Job` queue (packages/jobs), `asset.validate` local-filesystem worker (workers/assets). Not wired to uploads or the Asset model; no S3, thumbnails, conversion or optimization. |
 | PayPal / identity / cloud accounts | T-006 sandbox app and merchant configured; real webhook tested through an ephemeral tunnel | Real approval, capture-completed and capture-refunded events verified and processed; the temporary subscription was deleted. A stable public HTTPS URL, permanent webhook subscription, deployed `PAYPAL_WEBHOOK_ID`, and Clerk identity remain. |
-| Runtime tests / deployment | T-006 local checks pass; CI workflow is on main; no deployment | Follow-up: `pnpm typecheck` passed; `pnpm test` passed 72/72 (assets 6, spatial 21, web 45; DB project ran against `roomrelay_test`); DB project passed 31/31 on each of three consecutive runs. The earlier T-006 e2e run passed 9/9; e2e was not rerun because no production UI or route code changed in the coverage follow-up. `pnpm lint` previously exited 0 but skipped because no ESLint flat config exists. `.github/workflows/ci.yml` is merged on main and runs CI; no deployment. |
+| Runtime tests / deployment | T-006 local checks pass; CI workflow is on main; no deployment | Follow-up: `pnpm typecheck` passed; `pnpm test` passed 72/72 (assets 6, spatial 21, web 45; DB project ran against `roomrelay_test`); DB project passed 31/31 on each of three consecutive runs. The earlier T-006 e2e run passed 9/9; e2e was not rerun because no production UI or route code changed in the coverage follow-up. `pnpm lint` runs ESLint 9 flat config (`eslint-config-next` 16.4.0 + `typescript-eslint`) and is gated in CI with `--max-warnings 0` (0 errors, 0 warnings). `.github/workflows/ci.yml` is merged on main and runs CI; no deployment. |
 
 ## Next assignment
 
@@ -30,6 +30,16 @@ Updated: 2026-10-11. Phase: **M0 in progress: web foundation and synthetic viewe
 Owner: Devin (sessions https://app.devin.ai/sessions/a547e324f36d44d2ab61b3dd8d5494b9 and https://app.devin.ai/sessions/4a04b75b08da42f4b39555ced7549560 for Android).
 
 ## Session log
+
+```text
+Date / task / owner: 2026-10-11 / ESLint 9 flat config + CI gate / Devin
+State and user-visible result: IMPLEMENTED. Root `pnpm lint` runs the ESLint 9 flat config and CI gates it after recursive typecheck with `--max-warnings 0`; the follow-up targets 0 errors and 0 warnings. Initial lint before fixes: 16 errors and 5 warnings; errors by rule: @typescript-eslint/no-explicit-any 4, @typescript-eslint/no-unused-vars 7, no-control-regex 1, no-loss-of-precision 2, react-hooks/set-state-in-effect 2; warnings: @typescript-eslint/no-unused-vars 5.
+Files and commit: `eslint.config.mjs`, root `package.json`/`pnpm-lock.yaml`, `.github/workflows/ci.yml`, deleted `scripts/lint.mjs`, lint fixes across web UI, tests, packages and worker, and this status file; follow-up commit `chore(lint): enforce zero warnings and cache WebGL support` on `devin/1791699238-eslint-flat-config`.
+Checks actually run and results: `pnpm lint` passed with 0 errors and 0 warnings (`--max-warnings 0`); `pnpm -r typecheck` passed (6 projects); `pnpm --filter @roomrelay/web test` passed 53/53; `pnpm --filter @roomrelay/jobs test` passed 22/22; `pnpm --filter @roomrelay/asset-worker test` passed 15/15; `pnpm --filter @roomrelay/web test:e2e` passed 13/13. Evidence is saved under `C:\Users\Administrator\work\evidence\eslint-*.txt`.
+Requirements satisfied / remaining: ESLint 9 and the pinned Next.js/typescript-eslint configs are installed; underscore-prefixed unused names are allowed in TypeScript scopes, unused imports were removed, the flat config and zero-warning CI gate are active. Official Next.js docs and npm peer metadata supplied by the user were the documentation fallback; Context7 was not used per the settled instruction.
+Blocker or risk (if any): None; lint is configured to fail if any warning remains.
+Next task: Wait for the lead's CI-loop re-brief; CI was not watched in this code-to-push task.
+```
 
 ```text
 Date / task / owner: 2026-10-11 / T-002 probe follow-up / Devin (session https://app.devin.ai/sessions/4a04b75b08da42f4b39555ced7549560)

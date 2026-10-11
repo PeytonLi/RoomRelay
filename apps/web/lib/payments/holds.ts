@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { PaymentOrder } from "../generated/prisma/client";
 import { PaymentError } from "./errors";
-import type { PaymentDeps, PaymentTx } from "./deps";
+import type { PaymentDeps } from "./deps";
 import { revalidateQuote } from "./quotes";
 
 const HOLD_MS = 15 * 60 * 1000;

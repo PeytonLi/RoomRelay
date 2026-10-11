@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import { MAX_MODEL_CALLS, proposeLayout } from "./propose";
-import { ProviderError } from "./provider";
 import { fixtureContext, goodDeskChairJson, GOOD_DESK_CHAIR, loadFixtureRoom, mockProvider, proposalJson, reply } from "./testkit";
 
 describe("proposeLayout: accepted outputs", () => {
