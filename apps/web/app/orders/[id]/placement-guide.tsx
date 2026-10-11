@@ -80,8 +80,12 @@ export default function PlacementGuide({ guide }: { guide: Guide }) {
             ))}
           </tbody>
         </table>
-        <h4>Assumptions</h4>
-        <ul>{guide.assumptions.map((a) => <li key={a}>{a}</li>)}</ul>
+        {guide.assumptions.length > 0 && (
+          <>
+            <h4>Assumptions</h4>
+            <ul>{guide.assumptions.map((a) => <li key={a}>{a}</li>)}</ul>
+          </>
+        )}
       </figcaption>
     </figure>
   );

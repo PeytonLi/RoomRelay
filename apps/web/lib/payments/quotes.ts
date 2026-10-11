@@ -6,7 +6,6 @@ import type { PaymentDeps, PaymentTx } from "./deps";
 type QuoteLineInput = {
   itemId: string;
   priceCents: number;
-  conditionDisclosure?: string;
 };
 
 export type RequestQuoteInput = {
@@ -136,7 +135,7 @@ async function createQuoteSnapshot(
       widthM: listingVersion.widthM,
       depthM: listingVersion.depthM,
       heightM: listingVersion.heightM,
-      conditionDisclosure: line.conditionDisclosure ?? null,
+      conditionDisclosure: listingVersion.conditionNotes ?? null,
       priceCents: line.priceCents,
     };
   });
@@ -263,7 +262,6 @@ export async function reviseQuote(
     const lines = input.changes.lines ?? previous.lines.map((line) => ({
       itemId: line.itemId,
       priceCents: line.priceCents,
-      ...(line.conditionDisclosure === null ? {} : { conditionDisclosure: line.conditionDisclosure }),
     }));
     return createQuoteSnapshot(
       deps,

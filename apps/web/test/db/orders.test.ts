@@ -287,6 +287,26 @@ dbDescribe("T-008 orders, handoff and support", () => {
     expect(empty.status).toBe(422);
   });
 
+  it("quote line and order view carry the published listing's condition notes", async () => {
+    const { item, order } = await paidOrder("Noted item");
+    // The seeded item was published without condition notes → snapshot is null.
+    setTestIdentity("t008-buyer");
+    const view = await (await getOrder(new Request("http://localhost"), params(order.id))).json();
+    expect(view.order.quote.lines[0].conditionDisclosure).toBeNull();
+    // A second item published WITH notes → its quote snapshots them.
+    const { item: notedItem } = await seedPublishedPaymentItem(prisma, "t008-seller", "Noted item", {
+      conditionNotes: "light surface scratch",
+    });
+    const start = new Date(now.getTime() + 3 * 60 * 60 * 1000);
+    const noted = await requestQuote({
+      buyerId: buyer.id, sellerId: seller.id,
+      lines: [{ itemId: notedItem.id, priceCents: 1234 }], discountCents: 0,
+      pickupSlot: { start, end: new Date(start.getTime() + 60 * 60 * 1000) },
+      termsVersion: "test-v1",
+    }, deps);
+    expect(noted.lines[0]!.conditionDisclosure).toBe("light surface scratch");
+  });
+
   it("notes are participant-only and appended in order; order notes immutable in DB", async () => {
     const { order } = await paidOrder();
     setTestIdentity("t008-buyer");

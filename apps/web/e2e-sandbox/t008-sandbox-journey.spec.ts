@@ -115,6 +115,8 @@ test("T-008 real sandbox journey", async ({ browser, request }) => {
     throw error;
   }
   const quoteId = buyer.url().split("/quotes/")[1]!;
+  // The published listing's condition notes are snapshotted onto the quote line.
+  await expect(buyer.getByText("Minor scratches")).toBeVisible({ timeout: 60_000 });
   step("b_quote", { quoteId });
   await shot(buyer, "03-buyer-quote");
 
@@ -162,6 +164,8 @@ test("T-008 real sandbox journey", async ({ browser, request }) => {
   await buyer.waitForURL(/paypal=return/, { timeout: 90_000 });
   await buyer.waitForURL(`**/orders/${orderId}`, { timeout: 120_000 });
   await expect(buyer.getByRole("heading", { name: "Receipt" })).toBeVisible({ timeout: 60_000 });
+  // The receipt line carries the same condition disclosure from the listing.
+  await expect(buyer.getByText("Minor scratches")).toBeVisible();
   await shot(buyer, "05-order-buyer");
 
   const orderView = await api(request, "GET", `/api/v1/orders/${orderId}`, SUBJECTS.buyer);
@@ -254,19 +258,16 @@ test("T-008 real sandbox journey", async ({ browser, request }) => {
 
   const listingsAfter = await api(request, "GET", "/api/v1/listings", SUBJECTS.outsider);
   expect(JSON.stringify(listingsAfter.body)).not.toContain(ITEM_TITLE);
-  const itemId = order.quote.lines[0].itemId;
-
   // ---------- (h) relist via order page UI + republish ----------
   await seller.reload();
   await seller.locator(".relist input[type=checkbox]").check();
   await seller.getByRole("button", { name: "Relist item (I have it back)" }).click();
-  await expect(seller.getByText(`${ITEM_TITLE} is listed again.`)).toBeVisible({ timeout: 60_000 });
-  const relistedItem = await api(request, "GET", `/api/v1/items/${itemId}`, SUBJECTS.seller);
-  const publish = await api(request, "POST", `/api/v1/items/${itemId}/publish`, SUBJECTS.seller, { expectedVersion: relistedItem.body.version });
-  expect(publish.status).toBe(200);
+  await expect(seller.getByText(`${ITEM_TITLE} was relisted as a draft and isn't public yet.`)).toBeVisible({ timeout: 60_000 });
+  await seller.getByRole("button", { name: "Publish listing" }).click();
+  await expect(seller.getByText(`${ITEM_TITLE} is public again.`)).toBeVisible({ timeout: 60_000 });
   const listingsFinal = await api(request, "GET", "/api/v1/listings", SUBJECTS.outsider);
   expect(JSON.stringify(listingsFinal.body)).toContain(ITEM_TITLE);
-  step("h_relist", { publishStatus: publish.status, itemVersion: relistedItem.body.version, backInListings: JSON.stringify(listingsFinal.body).includes(ITEM_TITLE) });
+  step("h_relist", { relistedViaUi: true, publishedViaUi: true, backInListings: JSON.stringify(listingsFinal.body).includes(ITEM_TITLE) });
 
   writeFileSync(`${EVIDENCE_DIR}/evidence.json`, JSON.stringify(evidence, null, 2));
 });

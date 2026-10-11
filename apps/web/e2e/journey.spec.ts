@@ -207,6 +207,36 @@ test.describe("quote page journey", () => {
     await expect.poll(() => approvalBody).toEqual({ contentHash: "f".repeat(64) });
   });
 
+  test("closed checkout offers Start checkout with a fresh idempotency key", async ({ page }) => {
+    let checkoutBody: Record<string, unknown> | null = null;
+    await page.addInitScript(() => {
+      sessionStorage.setItem("rr-checkout-key:quote-1", "stale-checkout-key");
+    });
+    await mockApi(page, {
+      "GET /api/v1/quotes/quote-1": {
+        quote: quoteView({
+          status: "BUYER_APPROVED",
+          buyerApprovedAt: new Date().toISOString(),
+          checkout: { id: "order-canceled", status: "CANCELED" },
+        }),
+      },
+      "POST /api/v1/checkouts": (_route, body) => {
+        checkoutBody = body as Record<string, unknown>;
+        return { checkout: { id: ORDER_ID } };
+      },
+      "GET /api/v1/checkouts/order-1": { checkout: checkoutView() },
+    });
+    await page.goto(`/quotes/${QUOTE_ID}`);
+    await expect(page.getByRole("button", { name: "Start checkout" })).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByRole("link", { name: "Continue checkout" })).toHaveCount(0);
+    await page.getByRole("button", { name: "Start checkout" }).click();
+    await page.waitForURL(`**/checkout/${ORDER_ID}`);
+    await expect.poll(() => checkoutBody).not.toBeNull();
+    expect(checkoutBody!.quoteId).toBe(QUOTE_ID);
+    expect(checkoutBody!.idempotencyKey).not.toBe("stale-checkout-key");
+    expect(String(checkoutBody!.idempotencyKey).length).toBeGreaterThan(0);
+  });
+
   test("stale quote blocks approval and checkout", async ({ page }) => {
     await mockApi(page, {
       "GET /api/v1/quotes/quote-1": {
@@ -290,6 +320,17 @@ test.describe("checkout page journey", () => {
     await expect(page.getByText("The item hold expired. Payment is disabled.")).toBeVisible({ timeout: 30_000 });
     await expect(page.getByRole("button", { name: "Pay with PayPal" })).toBeDisabled();
     await expect(page.getByRole("link", { name: "Review the quote and request a new one" })).toBeVisible();
+  });
+
+  test("released hold shows Released and no countdown", async ({ page }) => {
+    await mockApi(page, {
+      "GET /api/v1/checkouts/order-1": {
+        checkout: checkoutView({ status: "CANCELED", hold: { state: "RELEASED", expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString() } }),
+      },
+    });
+    await page.goto(`/checkout/${ORDER_ID}`);
+    await expect(page.getByText("Released", { exact: true })).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId("hold-countdown")).toHaveCount(0);
   });
 
   test("cancel checkout releases the hold view", async ({ page }) => {
@@ -429,6 +470,54 @@ test.describe("order page journey", () => {
     await relist.click();
     await expect.poll(() => relistBody).toEqual({ possessionConfirmed: true });
     await expect(page.locator("body")).not.toContainText(/released|escrow/i);
+  });
+
+  test("relist shows draft status then publish makes the listing public", async ({ page }) => {
+    let publishBody: Record<string, unknown> | null = null;
+    await mockApi(page, {
+      "GET /api/v1/orders/order-1": () => ({
+        order: orderView({
+          role: "SELLER",
+          placementGuide: null,
+          status: "REFUNDED",
+          refundedCents: 4500,
+          refund: { status: "COMPLETED", providerRefundId: "REFUND1", amountCents: 4500 },
+          nextAction: "REFUNDED",
+        }),
+      }),
+      "POST /api/v1/items/item-1/relist": { item: { id: "item-1" } },
+      "GET /api/v1/items/item-1": { id: "item-1", version: 5 },
+      "POST /api/v1/items/item-1/publish": (_route, body) => {
+        publishBody = body as Record<string, unknown>;
+        return { item: { id: "item-1" }, publishedVersion: 2 };
+      },
+    });
+    await page.goto(`/orders/${ORDER_ID}`);
+    await page.getByRole("checkbox", { name: /I have Oak chair back/ }).check();
+    await page.getByRole("button", { name: "Relist item (I have it back)" }).first().click();
+    await expect(page.getByText("Oak chair was relisted as a draft and isn't public yet.")).toBeVisible({ timeout: 30_000 });
+    await page.getByRole("button", { name: "Publish listing" }).click();
+    await expect.poll(() => publishBody).toEqual({ expectedVersion: 5 });
+    await expect(page.getByText("Oak chair is public again.")).toBeVisible({ timeout: 30_000 });
+  });
+
+  test("unpaid order shows no-payment copy and no Assumptions heading when empty", async ({ page }) => {
+    const view = orderView({
+      status: "CREATED",
+      paidAt: null,
+      providerOrderId: "PAYPALORDER1",
+      providerCaptureId: null,
+      capturedCents: 0,
+    });
+    view.placementGuide!.assumptions = [];
+    await mockApi(page, {
+      "GET /api/v1/orders/order-1": { order: view },
+    });
+    await page.goto(`/orders/${ORDER_ID}`);
+    await expect(page.getByText("No payment has been taken for this order yet.")).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText(/PayPal Sandbox processed this payment/)).toHaveCount(0);
+    await expect(page.getByTestId("placement-guide")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Assumptions" })).toHaveCount(0);
   });
 });
 

@@ -32,7 +32,6 @@ export async function POST(request: Request) {
       lines: parsed.data.lines.map((line) => ({
         itemId: line.itemId,
         priceCents: line.priceCents,
-        ...(line.conditionDisclosure === undefined ? {} : { conditionDisclosure: line.conditionDisclosure }),
       })),
       discountCents: parsed.data.discountCents,
       pickupSlot: {
