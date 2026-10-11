@@ -9,19 +9,22 @@ import { reconcileOrder, reconcilePayments } from "../../lib/payments/reconcile"
 import { refundFull, reconcileRefund } from "../../lib/payments/refunds";
 import { receivePayPalWebhook } from "../../lib/payments/webhooks";
 import { HttpPayPalClient } from "../../lib/payments/paypal/client";
+import { patchItem, publishItem } from "../../lib/services/inventory";
 import { POST as createCheckoutRoute } from "../../app/api/v1/checkouts/route";
 import { PayPalContractMock } from "../support/paypal-contract-mock";
+import { seedPublishedPaymentItem, upsertPaymentSeller } from "../support/seed-payment-item";
 
 const databaseUrl = process.env.TEST_DATABASE_URL ??
   "postgresql://roomrelay:roomrelay-dev@localhost:5432/roomrelay_test";
 const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: databaseUrl }) });
 const dbDescribe = process.env.ROOMRELAY_SKIP_DB_TESTS === "1" ? describe.skip : describe;
-const sellerId = "t006-seller";
 
 dbDescribe("T-006 payment integration", () => {
   let provider: PayPalContractMock;
   let deps: ReturnType<typeof createPaymentDeps>;
   let now: Date;
+  let sellerUser: Awaited<ReturnType<typeof upsertPaymentSeller>>;
+  let sellerId: string;
 
   beforeAll(async () => {
     await prisma.$connect();
@@ -32,8 +35,10 @@ dbDescribe("T-006 payment integration", () => {
       TRUNCATE TABLE "paypal_webhook_events", "payment_events", "refunds",
         "payment_operations", "payment_orders", "inventory_hold_items",
         "item_inventory", "inventory_holds", "quote_lines", "quotes",
-        "items", "rooms" RESTART IDENTITY CASCADE
+        "items", "rooms", "assets" RESTART IDENTITY CASCADE
     `);
+    sellerUser = await upsertPaymentSeller(prisma, "t006-seller");
+    sellerId = sellerUser.id;
     now = new Date("2026-10-11T12:00:00.000Z");
     provider = new PayPalContractMock();
     const paypal = new HttpPayPalClient({
@@ -57,18 +62,39 @@ dbDescribe("T-006 payment integration", () => {
     await prisma.$disconnect();
   });
 
-  async function seedItem(title = "T006 item", itemSellerId = sellerId) {
-    return prisma.item.create({
-      data: {
-        sellerId: itemSellerId,
-        title,
-        widthM: "0.5000",
-        depthM: "0.4000",
-        heightM: "0.7000",
-        provenance: "ILLUSTRATIVE_GENERATED",
-        status: "ACTIVE",
-      },
-    });
+  it("rejects active items without a published listing version", async () => {
+    const item = await seedItem();
+    await prisma.item.update({ where: { id: item.id }, data: { publishedVersion: null } });
+    const start = new Date(now.getTime() + 2 * 60 * 60 * 1000);
+    await expect(requestQuote({
+      buyerId: "unpublished-buyer",
+      sellerId,
+      lines: [{ itemId: item.id, priceCents: 1234 }],
+      discountCents: 0,
+      pickupSlot: { start, end: new Date(start.getTime() + 60 * 60 * 1000) },
+      termsVersion: "test-v1",
+    }, deps)).rejects.toMatchObject({ code: "QUOTE_NOT_PAYABLE" });
+  });
+
+  async function seedItem(title = "T006 item") {
+    return (await seedPublishedPaymentItem(prisma, "t006-seller", title)).item;
+  }
+
+  async function publishNewTitle(itemId: string, title: string, widthM?: number) {
+    const item = await prisma.item.findUniqueOrThrow({ where: { id: itemId } });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const fields = widthM === undefined ? { title } : { title, widthM };
+    const patch = await patchItem(prisma, sellerUser, itemId, item.version, fields);
+    expect(patch.kind).toBe("ok");
+    if (patch.kind !== "ok") throw new Error(`Could not patch item: ${patch.kind}`);
+    const patchedItem = patch.item as { version: number; updatedAt: Date };
+    expect(patchedItem.updatedAt.getTime()).toBeGreaterThan(item.updatedAt.getTime());
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const publish = await publishItem(prisma, sellerUser, itemId, patchedItem.version);
+    expect(publish.kind).toBe("ok");
+    if (publish.kind !== "ok") throw new Error(`Could not publish item: ${publish.kind}`);
+    const publishedItem = publish.item as { updatedAt: Date };
+    expect(publishedItem.updatedAt.getTime()).toBeGreaterThan(patchedItem.updatedAt.getTime());
   }
 
   async function approvedQuote(
@@ -339,13 +365,20 @@ dbDescribe("T-006 payment integration", () => {
   });
 
   it("TEST-08: changed item snapshots and expired holds block capture without a provider call", async () => {
-    const { item, order, checkout } = await checkoutFor();
-    await prisma.item.update({ where: { id: item.id }, data: { title: "Changed after approval" } });
+    const item = await seedItem();
+    await approvedQuote("changed-before-buyer", [{ itemId: item.id, priceCents: 1234 }]);
+    await publishNewTitle(item.id, "Changed after approval", 0.75);
     const changedQuote = await approvedQuote("changed-buyer", [{ itemId: item.id, priceCents: 1234 }]);
-    await prisma.item.update({ where: { id: item.id }, data: { title: "Changed again" } });
+    const changedLine = await prisma.quoteLine.findFirstOrThrow({
+      where: { quoteId: changedQuote.id, itemId: item.id },
+    });
+    expect(changedLine.title).toBe("Changed after approval");
+    expect(changedLine.widthM?.toNumber()).toBe(0.75);
+    await publishNewTitle(item.id, "Changed again");
     await expect(startCheckout({
       buyerId: "changed-buyer", quoteId: changedQuote.id, idempotencyKey: "stale",
     }, deps)).rejects.toMatchObject({ code: "QUOTE_STALE" });
+    const { order, checkout } = await checkoutFor("expired-buyer");
     now = new Date(checkout.expiresAt.getTime() + 1);
     await expect(captureCheckout({
       orderId: order.id, buyerId: order.buyerId, providerOrderId: order.providerOrderId!,
