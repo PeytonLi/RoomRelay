@@ -1,6 +1,6 @@
 # Inventory, PayPal and handoff contract
 
-Authority: [PRD.md](PRD.md), FR-23..30. This document owns transactional behavior. Implementation is absent. Use sandbox for the first build; no live charge, marketplace approval, seller protection guarantee or escrow arrangement has been established.
+Authority: [PRD.md](PRD.md), FR-23..30. This document owns transactional behavior. The T-006 sandbox-only vertical slice is implemented in the web app; Clerk identity and public PayPal webhook delivery are not configured. Use sandbox for the first build; no live charge, marketplace approval, seller protection guarantee or escrow arrangement has been established.
 
 ## P-01: who receives money
 
@@ -15,6 +15,20 @@ Sources: [standard Orders flow](https://developer.paypal.com/api/rest/integratio
 ## P-02: immutable quotes and money
 
 A quote snapshots buyer, seller/merchant/environment, exact item IDs and content versions, item dimensions/condition disclosures, layout/room revision, line prices, optional explicit seller-approved bundle discount, total, selected pickup slot, terms version, seller approval, buyer approval and expiry.
+
+## T-006 implementation entry points
+
+The current local vertical slice is under `apps/web/lib/payments/`, with strict capability-gated routes under `apps/web/app/api/v1/`, an unavailable-by-default checkout page at `/checkout/[id]`, the `20261011120000_t006_payments` migration, and database/contract tests under `apps/web/test/`.
+
+Commands:
+
+```sh
+pnpm paypal:sandbox-smoke
+pnpm paypal:sandbox-smoke --create-only
+pnpm payments:reconcile
+```
+
+The create-only sandbox smoke creates and leaves a buyer-approval-pending checkout in the local database. Do not use `--resume <paymentOrderId>` until a sandbox personal buyer has approved it; the 15-minute inventory hold must still be active. Never use `--resume` against an order that was not created by the sandbox smoke. The script refuses live API mode and non-sandbox approval URLs. Webhook verification and reconciliation use provider facts; no credentials or complete webhook bodies are written to logs.
 
 Proposed quote lifetime: 24 hours after seller approval, capped by pickup availability; any critical content/room/layout/price/date/merchant change invalidates it earlier. Seller approval is not a stock hold. Checkout revalidates all facts. An expired/stale quote needs a new approved snapshot.
 

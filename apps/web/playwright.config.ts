@@ -18,5 +18,11 @@ export default defineConfig({
     url: `http://localhost:${PORT}`,
     reuseExistingServer: true,
     timeout: 120_000,
+    env: {
+      NEXT_PUBLIC_PAYPAL_CLIENT_ID: "",
+      PAYPAL_CLIENT_SECRET: "",
+      PAYPAL_WEBHOOK_ID: "",
+      PAYPAL_MERCHANT_ID: "",
+    },
   },
 });
