@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, type FormEvent } from "react";
+import IncomingQuotes from "./incoming-quotes";
 
 interface InventoryItem {
   id: string;
@@ -119,7 +120,7 @@ export default function SellClient() {
   }
 
   return (
-    <main>
+    <main className="journey">
       <h1>Sell furniture</h1>
       {identityUnavailable && <p role="status">Identity unavailable</p>}
       {message && <p role="status">{message}</p>}
@@ -151,6 +152,7 @@ export default function SellClient() {
           })}
         </ul>
       </section>
+      {!identityUnavailable && <IncomingQuotes />}
     </main>
   );
 }

@@ -195,3 +195,87 @@ button.btn:disabled { opacity: 0.45; cursor: default; }
 .proposal-list li:first-child { border-top: 0; }
 [data-testid="proposal-result"] .verdict { font-size: 13px; padding: 7px 10px; margin-bottom: 8px; }
 [data-testid="proposal-result"] .btn { margin: 8px 0 4px; }
+
+/* T-008 journey pages (rooms → quote → checkout → order) */
+.journey { display: block; height: auto; min-height: 100dvh; }
+main.journey:not(.workspace) { max-width: 980px; margin: 0 auto; padding: 20px; }
+.journey .topbar { align-items: center; flex-wrap: wrap; }
+.journey-body { display: flex; flex-direction: column; gap: 16px; max-width: 980px; margin: 0 auto; padding: 20px; background: none; }
+.journey .card { overflow-wrap: anywhere; }
+.journey .card h2 { font-size: 16px; }
+.journey h3 { font-size: 14px; margin: 14px 0 6px; }
+.journey button:not(.btn), .journey a.button {
+  font: inherit; font-size: 14px; font-weight: 600; padding: 9px 16px; border-radius: 9px;
+  border: 1px solid var(--accent); background: var(--accent); color: var(--accent-ink); cursor: pointer; text-decoration: none; display: inline-block;
+}
+.journey button.secondary { background: #fff; color: var(--ink); border-color: var(--line); }
+.journey button.danger { background: var(--fail); border-color: var(--fail); }
+.journey button:disabled { opacity: 0.45; cursor: not-allowed; }
+.journey button:focus-visible, .journey a:focus-visible, .journey input:focus-visible, .journey select:focus-visible, .journey textarea:focus-visible {
+  outline: 3px solid #e2a83a; outline-offset: 2px;
+}
+.journey input:not([type="checkbox"]):not([type="radio"]), .journey select, .journey textarea {
+  font: inherit; font-size: 14px; padding: 7px 9px; border: 1px solid #cfc8b8; border-radius: 8px; background: #fff; color: var(--ink); width: 100%;
+}
+.form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px 14px; align-items: end; margin: 10px 0; }
+.form-grid label, .inline-form label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--ink-soft); }
+.form-grid h3, .form-grid fieldset, .form-grid > label:has(textarea) { grid-column: 1 / -1; }
+.inline-form { display: flex; gap: 10px; align-items: end; flex-wrap: wrap; margin: 8px 0; }
+.inline-form label { flex: 1 1 220px; }
+.journey fieldset { border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 14px; margin: 10px 0; }
+.journey legend { font-weight: 600; font-size: 14px; padding: 0 4px; }
+.check { display: flex; gap: 8px; align-items: flex-start; font-size: 14px; margin: 6px 0; line-height: 1.4; }
+.check input { margin-top: 3px; width: 18px; height: 18px; flex: none; }
+.room-picker ul, .ack-list, .case-list, .notes, .candidate-list { list-style: none; padding: 0; margin: 0; }
+.room-picker li label { display: flex; gap: 8px; align-items: center; padding: 6px 0; }
+.candidate-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+.candidate { border: 1px solid var(--line); border-radius: var(--radius); background: #fff; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+.candidate.selected { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+.candidate-head { display: flex; justify-content: space-between; gap: 8px; }
+.price, .total { font-weight: 700; }
+.finding-list { list-style: none; padding: 0; margin: 0; }
+.verdict.pass { background: var(--accent-soft); color: var(--accent); }
+.verdict.fail { background: #f6e3e0; color: var(--fail); }
+.notice.fail { background: #f6e3e0; border-color: #e6c3bd; color: var(--fail); }
+.notice.warn { color: var(--warn); }
+.notice.pass { background: var(--accent-soft); border-color: #bcd8d1; color: var(--accent); }
+.badge.sandbox { background: #fff1c9; color: #6b4a00; border: 1px solid #e6c766; }
+.pill { display: inline-flex; gap: 6px; align-items: center; font-size: 13px; font-weight: 600; padding: 4px 10px; border-radius: 999px; background: #eeece6; }
+.pill .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+.pill.pass { color: var(--pass); } .pill.pass .dot { background: var(--pass); }
+.pill.fail { color: var(--fail); } .pill.fail .dot { background: var(--fail); }
+.pill.warn { color: var(--warn); } .pill.warn .dot { background: var(--warn); }
+.pill.unknown { color: var(--unknown); } .pill.unknown .dot { background: var(--unknown); }
+.ack-list li { margin: 4px 0; }
+.data-table { width: 100%; border-collapse: collapse; font-size: 13.5px; margin: 8px 0; }
+.data-table th, .data-table td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.data-table caption { text-align: left; font-weight: 600; padding: 6px 0; }
+.data-table .num { text-align: right; white-space: nowrap; }
+.facts { font-size: 13px; border-collapse: collapse; }
+.facts th { text-align: left; color: var(--ink-soft); font-weight: 500; padding: 2px 10px 2px 0; vertical-align: top; }
+.facts-list { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 16px; font-size: 14px; margin: 10px 0; }
+.facts-list dt { color: var(--ink-soft); }
+.facts-list dd { margin: 0; }
+code.hash { font-size: 11.5px; word-break: break-all; }
+.case { border-top: 1px solid var(--line); padding: 8px 0; }
+.notes li { border-top: 1px solid var(--line); padding: 8px 0; }
+.notes p, .case p { margin: 4px 0; }
+.actions { display: flex; gap: 10px; flex-wrap: wrap; margin: 10px 0; }
+.card-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.placement-guide { margin: 0; }
+.placement-guide svg { width: 100%; max-height: 70vh; height: auto; display: block; background: #fff; border: 1px solid var(--line); border-radius: 8px; }
+.relist { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 10px; }
+.rejections { margin-top: 12px; font-size: 13.5px; }
+@media (max-width: 720px) {
+  .journey-body, main.journey:not(.workspace) { padding: 12px; }
+  .facts-list { grid-template-columns: 1fr; gap: 2px; }
+  .facts-list dd { margin-bottom: 8px; }
+  .data-table { display: block; overflow-x: auto; }
+}
+@media print {
+  .journey .topbar, .no-print, .journey form, .journey button, .journey .notice { display: none !important; }
+  .journey .card { display: none; }
+  .journey .card.receipt, .journey .card.guide-card { display: block; border: 0; box-shadow: none; break-inside: avoid; }
+  .placement-guide svg { max-height: none; border: 1px solid #000; }
+  body { background: #fff; }
+}

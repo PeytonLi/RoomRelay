@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, type FormEvent } from "react";
+import FindFurniture from "./find-furniture";
 
 interface RoomRecord {
   id: string;
@@ -13,6 +14,8 @@ export default function RoomsClient({ initialGeometry }: { initialGeometry: stri
   const [message, setMessage] = useState("");
   const [identityUnavailable, setIdentityUnavailable] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const selected = rooms.find((room) => room.id === selectedId) ?? null;
 
   async function refreshRooms() {
     const response = await fetch("/api/v1/rooms");
@@ -65,7 +68,7 @@ export default function RoomsClient({ initialGeometry }: { initialGeometry: stri
   }
 
   return (
-    <main>
+    <main className="journey">
       <h1>Your rooms</h1>
       {identityUnavailable && <p role="status">Identity unavailable</p>}
       {message && <p role="status">{message}</p>}
@@ -75,7 +78,22 @@ export default function RoomsClient({ initialGeometry }: { initialGeometry: stri
         <button type="submit" disabled={busy}>{busy ? "Creating…" : "Create room"}</button>
       </form>
       <h2>Saved rooms</h2>
-      <ul>{rooms.map((room) => <li key={room.id}>{room.name} — measurement revision {room.measurementRevision}</li>)}</ul>
+      {rooms.length === 0 ? <p className="muted">No saved rooms yet.</p> : (
+        <fieldset className="room-picker">
+          <legend>Select a room to furnish</legend>
+          <ul>
+            {rooms.map((room) => (
+              <li key={room.id}>
+                <label>
+                  <input type="radio" name="selectedRoom" value={room.id} checked={selectedId === room.id} onChange={() => setSelectedId(room.id)} />
+                  {room.name} — measurement revision {room.measurementRevision}
+                </label>
+              </li>
+            ))}
+          </ul>
+        </fieldset>
+      )}
+      {selected && <FindFurniture key={`${selected.id}-${selected.measurementRevision}`} room={selected} />}
     </main>
   );
 }

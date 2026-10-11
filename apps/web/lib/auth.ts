@@ -11,11 +11,18 @@ async function findOrCreateUser(authSubject: string): Promise<RequireUserResult>
   if (!prisma) {
     return { ok: false, response: apiError("DATABASE_UNAVAILABLE", "database unavailable", 503, { retryable: true }) };
   }
-  const user = await prisma.user.upsert({
-    where: { authSubject },
-    update: {},
-    create: { authSubject },
-  });
+  let user: User;
+  try {
+    user = await prisma.user.upsert({
+      where: { authSubject },
+      update: {},
+      create: { authSubject },
+    });
+  } catch (error) {
+    // Concurrent first requests for the same subject race the upsert's insert.
+    if ((error as { code?: unknown }).code !== "P2002") throw error;
+    user = await prisma.user.findUniqueOrThrow({ where: { authSubject } });
+  }
   if (user.disabledAt) {
     return { ok: false, response: apiError("USER_DISABLED", "user disabled", 403) };
   }
