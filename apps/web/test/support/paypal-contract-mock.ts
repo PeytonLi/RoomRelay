@@ -42,6 +42,7 @@ export class PayPalContractMock {
   private readonly refunds = new Map<string, MockRefund>();
   private readonly idempotency = new Map<string, string>();
   private readonly faults = new Map<CallType, Fault[]>();
+  private readonly persistentFaults = new Map<CallType, Fault>();
   private readonly signedEvents = new Map<string, string>();
   private orderCount = 0;
   private captureCount = 0;
@@ -50,6 +51,14 @@ export class PayPalContractMock {
   private refundOutcome: "COMPLETED" | "PENDING" | "FAILED" = "COMPLETED";
   private tamper: Record<string, { amountValue?: string; merchantId?: string; referenceId?: string }> = {};
   private eventCount = 0;
+
+  get createdOrderCount(): number {
+    return this.orderCount;
+  }
+
+  get createdRefundCount(): number {
+    return this.refundCount;
+  }
 
   readonly fetch = async (input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> => {
     const url = new URL(input.toString());
@@ -64,6 +73,19 @@ export class PayPalContractMock {
     const headers = new Headers(init.headers);
     if (headers.get("authorization") !== "Bearer mock-access-token") {
       return response({ name: "AUTHENTICATION_FAILURE" }, 401);
+    }
+    const call = this.classify(method, path);
+    if (!call) return response({ name: "RESOURCE_NOT_FOUND" }, 404);
+    const requestId = headers.get("paypal-request-id") ?? undefined;
+    this.callLog.push({ type: call, ...(requestId ? { requestId } : {}), path });
+    const faultQueue = this.faults.get(call);
+    const fault = faultQueue?.shift() ?? this.persistentFaults.get(call);
+    if (fault?.mode === "network-before") throw new TypeError("mock network-before");
+    if (fault?.mode === "http") {
+      return response({
+        name: "UNPROCESSABLE_ENTITY",
+        details: [{ issue: fault.issue ?? "MOCK_FAILURE", description: "mock provider error" }],
+      }, fault.status ?? 422, `MOCK-DEBUG-${call}`);
     }
     if (path === "/v1/notifications/verify-webhook-signature") {
       const body = String(init.body ?? "");
@@ -86,22 +108,10 @@ export class PayPalContractMock {
       return response({ verification_status: accepted ? "SUCCESS" : "FAILURE" });
     }
 
-    const call = this.classify(method, path);
-    if (!call) return response({ name: "RESOURCE_NOT_FOUND" }, 404);
-    const requestId = headers.get("paypal-request-id") ?? undefined;
-    this.callLog.push({ type: call, ...(requestId ? { requestId } : {}), path });
     if (["createOrder", "captureOrder", "refundCapture"].includes(call)) {
       if (!requestId || headers.get("prefer") !== "return=representation") {
         return response({ name: "VALIDATION_ERROR" }, 400);
       }
-    }
-    const fault = this.faults.get(call)?.shift();
-    if (fault?.mode === "network-before") throw new TypeError("mock network-before");
-    if (fault?.mode === "http") {
-      return response({
-        name: "UNPROCESSABLE_ENTITY",
-        details: [{ issue: fault.issue ?? "MOCK_FAILURE", description: "mock provider error" }],
-      }, fault.status ?? 422, `MOCK-DEBUG-${call}`);
     }
     const result = await this.dispatch(call, path, init, requestId);
     if (fault?.mode === "network-after") throw new TypeError("mock network-after");
@@ -140,6 +150,10 @@ export class PayPalContractMock {
     this.faults.set(callType, current);
   }
 
+  injectPersistentFault(callType: CallType, fault: Fault): void {
+    this.persistentFaults.set(callType, fault);
+  }
+
   tamperNext(callType: CallType, values: { amountValue?: string; merchantId?: string; referenceId?: string }): void {
     this.tamper[callType] = values;
   }
@@ -163,6 +177,9 @@ export class PayPalContractMock {
   }
 
   private classify(method: string, path: string): CallType | null {
+    if (method === "POST" && path === "/v1/notifications/verify-webhook-signature") {
+      return "verifyWebhookSignature";
+    }
     if (method === "POST" && path === "/v2/checkout/orders") return "createOrder";
     if (method === "GET" && /^\/v2\/checkout\/orders\/[^/]+$/.test(path)) return "getOrder";
     if (method === "POST" && /^\/v2\/checkout\/orders\/[^/]+\/capture$/.test(path)) return "captureOrder";

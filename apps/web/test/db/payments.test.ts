@@ -4,11 +4,12 @@ import { PrismaClient } from "../../lib/generated/prisma/client";
 import { createPaymentDeps } from "../../lib/payments/deps";
 import { createProviderOrder, recordApproval, captureCheckout } from "../../lib/payments/checkout";
 import { startCheckout, expireHolds } from "../../lib/payments/holds";
-import { requestQuote, sellerApproveQuote, buyerApproveQuote } from "../../lib/payments/quotes";
-import { reconcileOrder } from "../../lib/payments/reconcile";
+import { requestQuote, sellerApproveQuote, buyerApproveQuote, reviseQuote } from "../../lib/payments/quotes";
+import { reconcileOrder, reconcilePayments } from "../../lib/payments/reconcile";
 import { refundFull, reconcileRefund } from "../../lib/payments/refunds";
 import { receivePayPalWebhook } from "../../lib/payments/webhooks";
 import { HttpPayPalClient } from "../../lib/payments/paypal/client";
+import { POST as createCheckoutRoute } from "../../app/api/v1/checkouts/route";
 import { PayPalContractMock } from "../support/paypal-contract-mock";
 
 const databaseUrl = process.env.TEST_DATABASE_URL ??
@@ -173,6 +174,170 @@ dbDescribe("T-006 payment integration", () => {
     })).requestId).toBe(provider.callLog.find((call) => call.type === "captureOrder")?.requestId);
   });
 
+  it("TEST-08: concurrent provider-order creates submit one CREATE operation", async () => {
+    const item = await seedItem();
+    const quote = await approvedQuote("create-race-buyer", [{ itemId: item.id, priceCents: 1234 }]);
+    const checkout = await startCheckout({
+      buyerId: "create-race-buyer",
+      quoteId: quote.id,
+      idempotencyKey: "create-race-key",
+    }, deps);
+    const [first, second] = await Promise.all([
+      createProviderOrder({ orderId: checkout.id, buyerId: "create-race-buyer" }, deps),
+      createProviderOrder({ orderId: checkout.id, buyerId: "create-race-buyer" }, deps),
+    ]);
+    expect(first.id).toBe(second.id);
+    expect(provider.callLog.filter((call) => call.type === "createOrder")).toHaveLength(1);
+    expect(await prisma.paymentOperation.count({
+      where: { orderId: checkout.id, type: "CREATE" },
+    })).toBe(1);
+    expect(await prisma.paymentOrder.findUniqueOrThrow({ where: { id: checkout.id } }))
+      .toMatchObject({ status: "PROVIDER_CREATED" });
+  });
+
+  it("TEST-08: create network-after retry reuses its request identity and PayPal order", async () => {
+    const item = await seedItem();
+    const quote = await approvedQuote("create-timeout-buyer", [{ itemId: item.id, priceCents: 1234 }]);
+    const checkout = await startCheckout({
+      buyerId: "create-timeout-buyer",
+      quoteId: quote.id,
+      idempotencyKey: "create-timeout-key",
+    }, deps);
+    provider.injectFault("createOrder", { mode: "network-after" });
+    await expect(createProviderOrder({ orderId: checkout.id, buyerId: "create-timeout-buyer" }, deps))
+      .rejects.toMatchObject({ code: "PROVIDER_UNAVAILABLE" });
+    const operation = await prisma.paymentOperation.findUniqueOrThrow({
+      where: { orderId_type: { orderId: checkout.id, type: "CREATE" } },
+    });
+    expect(operation.status).toBe("UNKNOWN");
+    const retried = await createProviderOrder({ orderId: checkout.id, buyerId: "create-timeout-buyer" }, deps);
+    const createCalls = provider.callLog.filter((call) => call.type === "createOrder");
+    expect(createCalls).toHaveLength(2);
+    expect(createCalls.map((call) => call.requestId)).toEqual([operation.requestId, operation.requestId]);
+    expect(provider.createdOrderCount).toBe(1);
+    expect(retried).toMatchObject({ status: "PROVIDER_CREATED", providerOrderId: "MOCK-ORDER-1" });
+  });
+
+  it("TEST-08: amount-tampered provider create releases its hold", async () => {
+    const item = await seedItem();
+    const quote = await approvedQuote("create-amount-tamper", [{ itemId: item.id, priceCents: 1234 }]);
+    const checkout = await startCheckout({
+      buyerId: "create-amount-tamper",
+      quoteId: quote.id,
+      idempotencyKey: "create-amount-tamper-key",
+    }, deps);
+    provider.tamperNext("createOrder", { amountValue: "999.99" });
+    await expect(createProviderOrder({ orderId: checkout.id, buyerId: "create-amount-tamper" }, deps))
+      .rejects.toMatchObject({ code: "ORDER_BINDING_MISMATCH" });
+    expect(await prisma.paymentOrder.findUniqueOrThrow({ where: { id: checkout.id } }))
+      .toMatchObject({ status: "FAILED" });
+    expect((await prisma.inventoryHold.findUniqueOrThrow({ where: { id: checkout.holdId } })).state)
+      .toBe("RELEASED");
+    expect((await prisma.itemInventory.findUniqueOrThrow({ where: { itemId: item.id } })).state)
+      .toBe("AVAILABLE");
+    expect(provider.callLog.filter((call) => call.type === "captureOrder")).toHaveLength(0);
+  });
+
+  it("TEST-08: merchant-tampered provider create releases its hold", async () => {
+    const item = await seedItem();
+    const quote = await approvedQuote("create-merchant-tamper", [{ itemId: item.id, priceCents: 1234 }]);
+    const checkout = await startCheckout({
+      buyerId: "create-merchant-tamper",
+      quoteId: quote.id,
+      idempotencyKey: "create-merchant-tamper-key",
+    }, deps);
+    provider.tamperNext("createOrder", { merchantId: "wrong-merchant" });
+    await expect(createProviderOrder({ orderId: checkout.id, buyerId: "create-merchant-tamper" }, deps))
+      .rejects.toMatchObject({ code: "ORDER_BINDING_MISMATCH" });
+    expect(await prisma.paymentOrder.findUniqueOrThrow({ where: { id: checkout.id } }))
+      .toMatchObject({ status: "FAILED" });
+    expect((await prisma.inventoryHold.findUniqueOrThrow({ where: { id: checkout.holdId } })).state)
+      .toBe("RELEASED");
+    expect((await prisma.itemInventory.findUniqueOrThrow({ where: { itemId: item.id } })).state)
+      .toBe("AVAILABLE");
+    expect(provider.callLog.filter((call) => call.type === "captureOrder")).toHaveLength(0);
+  });
+
+  it("TEST-08: merchant configuration changes make an approved quote stale before holding inventory", async () => {
+    const item = await seedItem();
+    const quote = await approvedQuote("merchant-change-buyer", [{ itemId: item.id, priceCents: 1234 }]);
+    const changedMerchantDeps = createPaymentDeps(prisma, deps.paypal, {
+      environment: "sandbox",
+      clientId: "mock-client",
+      clientSecret: "mock-secret",
+      merchantId: "different-merchant",
+      webhookId: "mock-webhook",
+      webBaseUrl: "http://localhost:3000",
+      operatorIds: ["t006-operator"],
+    }, () => now);
+    await expect(startCheckout({
+      buyerId: "merchant-change-buyer",
+      quoteId: quote.id,
+      idempotencyKey: "merchant-change-key",
+    }, changedMerchantDeps)).rejects.toMatchObject({ code: "QUOTE_STALE" });
+    expect(await prisma.inventoryHold.count()).toBe(0);
+    expect(await prisma.itemInventory.findUnique({ where: { itemId: item.id } })).toBeNull();
+  });
+
+  it("TEST-08: seller revision supersedes the old quote and rejects a stale buyer hash", async () => {
+    const item = await seedItem();
+    const start = new Date(now.getTime() + 2 * 60 * 60 * 1000);
+    const original = await requestQuote({
+      buyerId: "revision-buyer",
+      sellerId,
+      lines: [{ itemId: item.id, priceCents: 1234 }],
+      discountCents: 0,
+      pickupSlot: { start, end: new Date(start.getTime() + 60 * 60 * 1000) },
+      termsVersion: "test-v1",
+    }, deps);
+    await sellerApproveQuote({ quoteId: original.id, sellerId, contentHash: original.contentHash }, deps);
+    const revised = await reviseQuote({
+      quoteId: original.id,
+      sellerId,
+      changes: { discountCents: 100 },
+    }, deps);
+    expect(await prisma.quote.findUniqueOrThrow({ where: { id: original.id } })).toMatchObject({
+      status: "SUPERSEDED",
+    });
+    expect(revised).toMatchObject({ version: 2, previousQuoteId: original.id });
+    await expect(startCheckout({
+      buyerId: "revision-buyer",
+      quoteId: original.id,
+      idempotencyKey: "superseded-quote",
+    }, deps)).rejects.toMatchObject({ code: "QUOTE_NOT_PAYABLE" });
+    await sellerApproveQuote({ quoteId: revised.id, sellerId, contentHash: revised.contentHash }, deps);
+    await expect(buyerApproveQuote({
+      quoteId: revised.id,
+      buyerId: "revision-buyer",
+      contentHash: "0".repeat(64),
+    }, deps)).rejects.toMatchObject({ code: "QUOTE_STALE" });
+  });
+
+  it("TEST-08: capture rejects a mismatched provider order binding before calling PayPal", async () => {
+    const { order } = await checkoutFor("capture-binding-buyer");
+    await expect(captureCheckout({
+      orderId: order.id,
+      buyerId: order.buyerId,
+      providerOrderId: "not-the-saved-provider-order",
+    }, deps)).rejects.toMatchObject({ code: "ORDER_BINDING_MISMATCH" });
+    expect(provider.callLog.filter((call) => call.type === "captureOrder")).toHaveLength(0);
+  });
+
+  it("TEST-08: checkout route fails closed for client-supplied amount and merchant fields", async () => {
+    const response = await createCheckoutRoute(new Request("http://localhost/api/v1/checkouts", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        quoteId: "quote-id",
+        idempotencyKey: "route-tamper",
+        amountCents: 1234,
+        merchantId: "attacker-merchant",
+      }),
+    }));
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({ error: { code: "PAYMENTS_UNAVAILABLE" } });
+  });
+
   it("TEST-08: changed item snapshots and expired holds block capture without a provider call", async () => {
     const { item, order, checkout } = await checkoutFor();
     await prisma.item.update({ where: { id: item.id }, data: { title: "Changed after approval" } });
@@ -269,6 +434,83 @@ dbDescribe("T-006 payment integration", () => {
     }
   }, 180_000);
 
+  it("TEST-09: a paid write failure reconciles to PAID without a webhook or duplicate capture", async () => {
+    const { item, checkout, order } = await checkoutFor("paid-write-failure-buyer");
+    deps.hooks = { afterProviderCapture: async () => { throw new Error("simulated database failure"); } };
+    await expect(captureCheckout({
+      orderId: order.id,
+      buyerId: order.buyerId,
+      providerOrderId: order.providerOrderId!,
+    }, deps)).rejects.toThrow();
+    deps.hooks = {};
+    expect((await prisma.paymentOrder.findUniqueOrThrow({ where: { id: order.id } })).status).not.toBe("PAID");
+    expect(provider.callLog.filter((call) => call.type === "captureOrder")).toHaveLength(1);
+    expect(await prisma.webhookEvent.count()).toBe(0);
+
+    const reconciled = await reconcileOrder(order.id, deps);
+    expect(reconciled?.status).toBe("PAID");
+    expect(provider.callLog.filter((call) => call.type === "captureOrder")).toHaveLength(1);
+    expect((await prisma.inventoryHold.findUniqueOrThrow({ where: { id: checkout.holdId } })).state)
+      .toBe("CONSUMED");
+    expect((await prisma.itemInventory.findUniqueOrThrow({ where: { itemId: item.id } })).state)
+      .toBe("SOLD");
+  });
+
+  it("TEST-09: persistent capture network failures exhaust into operator attention without releasing inventory", async () => {
+    const { item, checkout, order } = await checkoutFor("capture-retry-exhaustion-buyer");
+    provider.injectPersistentFault("captureOrder", { mode: "network-before" });
+    const first = await captureCheckout({
+      orderId: order.id,
+      buyerId: order.buyerId,
+      providerOrderId: order.providerOrderId!,
+    }, deps);
+    expect(first.status).toBe("RECONCILING");
+
+    let current = first;
+    for (let attempt = 0; attempt < 6 && current.status !== "EXCEPTION"; attempt += 1) {
+      current = (await reconcileOrder(order.id, deps))!;
+    }
+    const operation = await prisma.paymentOperation.findUniqueOrThrow({
+      where: { orderId_type: { orderId: order.id, type: "CAPTURE" } },
+    });
+    expect(operation.attempts).toBeGreaterThanOrEqual(5);
+    expect(current).toMatchObject({ status: "EXCEPTION", operatorAttention: true });
+    expect((await prisma.inventoryHold.findUniqueOrThrow({ where: { id: checkout.holdId } })).state)
+      .toBe("CAPTURE_PENDING");
+    expect((await prisma.itemInventory.findUniqueOrThrow({ where: { itemId: item.id } })).state)
+      .toBe("PAYMENT_PENDING");
+  });
+
+  it("TEST-09: an approval webhook records APPROVED without capturing or marking PAID", async () => {
+    const item = await seedItem();
+    const quote = await approvedQuote("approval-webhook-buyer", [{ itemId: item.id, priceCents: 1234 }]);
+    const checkout = await startCheckout({
+      buyerId: "approval-webhook-buyer",
+      quoteId: quote.id,
+      idempotencyKey: "approval-webhook-key",
+    }, deps);
+    const order = await createProviderOrder({ orderId: checkout.id, buyerId: "approval-webhook-buyer" }, deps);
+    provider.approve(order.providerOrderId!);
+    const event = JSON.stringify({
+      id: "event-approval-only",
+      event_type: "CHECKOUT.ORDER.APPROVED",
+      resource_type: "checkout-order",
+      resource: {
+        id: order.providerOrderId,
+        status: "APPROVED",
+        payee: { merchant_id: "mock-merchant" },
+      },
+    });
+    expect(await receivePayPalWebhook({
+      headers: provider.signEvent(event),
+      rawBody: event,
+    }, deps)).toEqual({ accepted: true, duplicate: false });
+    expect(await prisma.paymentOrder.findUniqueOrThrow({ where: { id: order.id } }))
+      .toMatchObject({ status: "APPROVED" });
+    expect(provider.callLog.filter((call) => call.type === "captureOrder")).toHaveLength(0);
+    expect((await prisma.itemInventory.findUniqueOrThrow({ where: { itemId: item.id } })).state).toBe("HELD");
+  });
+
   it("TEST-09: pending and declined captures preserve their distinct inventory outcomes", async () => {
     const pending = await checkoutFor("pending-buyer");
     provider.setCaptureOutcome("PENDING");
@@ -352,6 +594,10 @@ dbDescribe("T-006 payment integration", () => {
       headers: provider.signEvent(outOfOrder),
       rawBody: outOfOrder,
     }, deps)).toEqual({ accepted: true, duplicate: false });
+    expect((await prisma.paymentOrder.findUniqueOrThrow({ where: { id: order.id } })).status).toBe("PAID");
+    expect(await prisma.paymentEvent.count({
+      where: { orderId: order.id, kind: "ignored_regression" },
+    })).toBeGreaterThan(0);
     expect(provider.callLog.filter((call) => call.type === "captureOrder")).toHaveLength(1);
     const unrelatedMerchant = JSON.stringify({
       id: "event-other-merchant",
@@ -373,9 +619,109 @@ dbDescribe("T-006 payment integration", () => {
     })).processingState).toBe("IGNORED");
     const badEvent = JSON.stringify({ id: "bad-signature", event_type: "CHECKOUT.ORDER.APPROVED", resource: { id: order.providerOrderId } });
     const badHeaders = { ...provider.signEvent(badEvent), "paypal-transmission-sig": "invalid" };
+    const orderStatusBeforeBadSignature = (await prisma.paymentOrder.findUniqueOrThrow({
+      where: { id: order.id },
+    })).status;
     await expect(receivePayPalWebhook({ headers: badHeaders, rawBody: badEvent }, deps))
       .rejects.toMatchObject({ code: "VALIDATION" });
+    expect((await prisma.paymentOrder.findUniqueOrThrow({ where: { id: order.id } })).status)
+      .toBe(orderStatusBeforeBadSignature);
+    expect(await prisma.webhookEvent.count({ where: { providerEventId: "bad-signature" } })).toBe(0);
     expect(await prisma.webhookEvent.count()).toBe(3);
+  });
+
+  it("TEST-09: webhook verification HTTP and network failures are unavailable without storing events", async () => {
+    const { order } = await checkoutFor("verification-failure-buyer");
+    for (const [eventId, fault] of [
+      ["verify-http-failure", { mode: "http" as const, status: 500 }],
+      ["verify-network-failure", { mode: "network-before" as const }],
+    ] as const) {
+      const rawBody = JSON.stringify({
+        id: eventId,
+        event_type: "CHECKOUT.ORDER.APPROVED",
+        resource: { id: order.providerOrderId },
+      });
+      provider.injectFault("verifyWebhookSignature", fault);
+      await expect(receivePayPalWebhook({
+        headers: provider.signEvent(rawBody),
+        rawBody,
+      }, deps)).rejects.toMatchObject({ code: "PROVIDER_UNAVAILABLE" });
+      expect(await prisma.webhookEvent.count({ where: { providerEventId: eventId } })).toBe(0);
+    }
+    expect(await prisma.webhookEvent.count()).toBe(0);
+  });
+
+  it("TEST-09: failed capture-webhook processing is retried by reconciliation", async () => {
+    const { order } = await checkoutFor("webhook-retry-buyer");
+    deps.hooks = { afterProviderCapture: async () => { throw new Error("simulated database failure"); } };
+    await expect(captureCheckout({
+      orderId: order.id,
+      buyerId: order.buyerId,
+      providerOrderId: order.providerOrderId!,
+    }, deps)).rejects.toThrow();
+    deps.hooks = {};
+    const rawBody = JSON.stringify({
+      id: "event-capture-processing-retry",
+      event_type: "PAYMENT.CAPTURE.COMPLETED",
+      resource_type: "capture",
+      resource: {
+        id: "MOCK-CAPTURE-1",
+        status: "COMPLETED",
+        payee: { merchant_id: "mock-merchant" },
+        supplementary_data: { related_ids: { order_id: order.providerOrderId } },
+      },
+    });
+    provider.injectFault("getOrder", { mode: "network-before" });
+    expect(await receivePayPalWebhook({
+      headers: provider.signEvent(rawBody),
+      rawBody,
+    }, deps)).toEqual({ accepted: true, duplicate: false });
+    expect((await prisma.webhookEvent.findUniqueOrThrow({
+      where: { environment_providerEventId: {
+        environment: "sandbox",
+        providerEventId: "event-capture-processing-retry",
+      } },
+    })).processingState).toBe("FAILED");
+
+    await reconcilePayments(deps, now);
+    expect((await prisma.paymentOrder.findUniqueOrThrow({ where: { id: order.id } })).status).toBe("PAID");
+    expect((await prisma.webhookEvent.findUniqueOrThrow({
+      where: { environment_providerEventId: {
+        environment: "sandbox",
+        providerEventId: "event-capture-processing-retry",
+      } },
+    })).processingState).toBe("PROCESSED");
+    expect(provider.callLog.filter((call) => call.type === "captureOrder")).toHaveLength(1);
+  });
+
+  it("TEST-09: a verified pending capture webhook preserves pending inventory", async () => {
+    const { item, order } = await checkoutFor("pending-webhook-buyer");
+    provider.setCaptureOutcome("PENDING");
+    const pending = await captureCheckout({
+      orderId: order.id,
+      buyerId: order.buyerId,
+      providerOrderId: order.providerOrderId!,
+    }, deps);
+    expect(pending.status).toBe("PENDING");
+    const saved = await prisma.paymentOrder.findUniqueOrThrow({ where: { id: order.id } });
+    const rawBody = JSON.stringify({
+      id: "event-capture-pending",
+      event_type: "PAYMENT.CAPTURE.PENDING",
+      resource_type: "capture",
+      resource: {
+        id: saved.providerCaptureId,
+        status: "PENDING",
+        payee: { merchant_id: "mock-merchant" },
+        supplementary_data: { related_ids: { order_id: order.providerOrderId } },
+      },
+    });
+    expect(await receivePayPalWebhook({
+      headers: provider.signEvent(rawBody),
+      rawBody,
+    }, deps)).toEqual({ accepted: true, duplicate: false });
+    expect((await prisma.paymentOrder.findUniqueOrThrow({ where: { id: order.id } })).status).toBe("PENDING");
+    expect((await prisma.itemInventory.findUniqueOrThrow({ where: { itemId: item.id } })).state)
+      .toBe("PAYMENT_PENDING");
   });
 
   it("TEST-10: full refunds are idempotent, reconcile pending, and never restock sold inventory", async () => {
@@ -402,6 +748,152 @@ dbDescribe("T-006 payment integration", () => {
       requestKey: "unauthorized",
       reason: "Nope",
     }, deps)).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
+  it("TEST-10: concurrent same-key refunds create one provider refund and reject another key", async () => {
+    const { order } = await checkoutFor("refund-race-buyer");
+    await captureCheckout({
+      orderId: order.id,
+      buyerId: order.buyerId,
+      providerOrderId: order.providerOrderId!,
+    }, deps);
+    const input = {
+      orderId: order.id,
+      actorId: sellerId,
+      actorRole: "seller" as const,
+      requestKey: "same-refund-key",
+      reason: "Concurrent duplicate",
+    };
+    const [first, second] = await Promise.all([
+      refundFull(input, deps),
+      refundFull(input, deps),
+    ]);
+    expect(first.refund.id).toBe(second.refund.id);
+    expect(await prisma.refund.count({ where: { orderId: order.id } })).toBe(1);
+    expect(provider.callLog.filter((call) => call.type === "refundCapture")).toHaveLength(1);
+    expect(provider.createdRefundCount).toBe(1);
+    await expect(refundFull({ ...input, requestKey: "different-refund-key" }, deps))
+      .rejects.toMatchObject({ code: "REFUND_NOT_ALLOWED" });
+  });
+
+  it("TEST-10: refund network-after retry reuses the same request idempotency key", async () => {
+    const { order } = await checkoutFor("refund-timeout-buyer");
+    await captureCheckout({
+      orderId: order.id,
+      buyerId: order.buyerId,
+      providerOrderId: order.providerOrderId!,
+    }, deps);
+    provider.injectFault("refundCapture", { mode: "network-after" });
+    const uncertain = await refundFull({
+      orderId: order.id,
+      actorId: sellerId,
+      actorRole: "seller",
+      requestKey: "refund-timeout-key",
+      reason: "Network-after recovery",
+    }, deps);
+    expect(uncertain.refund.status).toBe("RECONCILING");
+    const requestId = uncertain.refund.requestId;
+    const reconciled = await reconcileRefund(uncertain.refund.id, deps);
+    expect(reconciled.refund.status).toBe("COMPLETED");
+    const calls = provider.callLog.filter((call) => call.type === "refundCapture");
+    expect(calls).toHaveLength(2);
+    expect(calls.map((call) => call.requestId)).toEqual([requestId, requestId]);
+    expect(provider.createdRefundCount).toBe(1);
+  });
+
+  it("TEST-10: refund before PAID is rejected without a provider refund call", async () => {
+    const { order } = await checkoutFor("refund-before-paid-buyer");
+    expect(order.status).toBe("APPROVED");
+    await expect(refundFull({
+      orderId: order.id,
+      actorId: sellerId,
+      actorRole: "seller",
+      requestKey: "refund-before-paid-key",
+      reason: "Premature refund",
+    }, deps)).rejects.toMatchObject({ code: "REFUND_NOT_ALLOWED" });
+    expect(provider.callLog.filter((call) => call.type === "refundCapture")).toHaveLength(0);
+    expect(await prisma.refund.count()).toBe(0);
+  });
+
+  it("TEST-10: refund actor checks reject buyers and unconfigured operators while allowing configured operators", async () => {
+    const { order } = await checkoutFor("refund-actor-buyer");
+    await captureCheckout({
+      orderId: order.id,
+      buyerId: order.buyerId,
+      providerOrderId: order.providerOrderId!,
+    }, deps);
+    await expect(refundFull({
+      orderId: order.id,
+      actorId: order.buyerId,
+      actorRole: "seller",
+      requestKey: "buyer-as-seller",
+      reason: "Buyer is not the seller",
+    }, deps)).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(refundFull({
+      orderId: order.id,
+      actorId: "unconfigured-operator",
+      actorRole: "operator",
+      requestKey: "unconfigured-operator",
+      reason: "Not configured",
+    }, deps)).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(await prisma.refund.count({ where: { orderId: order.id } })).toBe(0);
+
+    const result = await refundFull({
+      orderId: order.id,
+      actorId: "t006-operator",
+      actorRole: "operator",
+      requestKey: "configured-operator",
+      reason: "Authorized operator",
+    }, deps);
+    expect(result.refund.status).toBe("COMPLETED");
+    expect(result.refund.initiatorId).toBe("t006-operator");
+    expect(provider.callLog.filter((call) => call.type === "refundCapture")).toHaveLength(1);
+  });
+
+  it("TEST-10: verified refund webhook reconciles completion without restocking sold inventory", async () => {
+    const { item, order } = await checkoutFor("refund-webhook-buyer");
+    const paidOrder = await captureCheckout({
+      orderId: order.id,
+      buyerId: order.buyerId,
+      providerOrderId: order.providerOrderId!,
+    }, deps);
+    provider.setRefundOutcome("PENDING");
+    const pending = await refundFull({
+      orderId: order.id,
+      actorId: sellerId,
+      actorRole: "seller",
+      requestKey: "refund-webhook-key",
+      reason: "Pending refund webhook",
+    }, deps);
+    expect(pending.refund.status).toBe("PENDING");
+    const refundId = pending.refund.providerRefundId!;
+    provider.completePendingRefund(refundId);
+    const rawBody = JSON.stringify({
+      id: "event-refund-completed",
+      event_type: "PAYMENT.REFUND.COMPLETED",
+      resource_type: "refund",
+      resource: {
+        id: refundId,
+        status: "COMPLETED",
+        amount: { currency_code: "USD", value: "12.34" },
+        supplementary_data: {
+          related_ids: {
+            order_id: order.providerOrderId,
+            capture_id: paidOrder.providerCaptureId,
+          },
+        },
+      },
+    });
+    expect(await receivePayPalWebhook({
+      headers: provider.signEvent(rawBody),
+      rawBody,
+    }, deps)).toEqual({ accepted: true, duplicate: false });
+    expect((await prisma.refund.findUniqueOrThrow({ where: { id: pending.refund.id } })).status)
+      .toBe("COMPLETED");
+    expect((await prisma.paymentOrder.findUniqueOrThrow({ where: { id: order.id } })).status)
+      .toBe("REFUNDED");
+    expect((await prisma.itemInventory.findUniqueOrThrow({ where: { itemId: item.id } })).state)
+      .toBe("SOLD");
   });
 
   it("TEST-10: refund failures do not change the paid order", async () => {

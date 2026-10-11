@@ -130,9 +130,16 @@ export async function createPayPalOrder(
     if (operation.status === "FAILED") {
       throw new PaymentError("INVALID_STATE", "PayPal order creation previously failed");
     }
+    if (operation.status === "SUBMITTED" && operation.nextAttemptAt && operation.nextAttemptAt > nowFor(deps)) {
+      return { order: current, operation: null };
+    }
     await tx.paymentOperation.update({
       where: { id: operation.id },
-      data: { status: "SUBMITTED", attempts: { increment: 1 }, nextAttemptAt: null },
+      data: {
+        status: "SUBMITTED",
+        attempts: { increment: 1 },
+        nextAttemptAt: new Date(nowFor(deps).getTime() + 30_000),
+      },
     });
     return { order: current, operation };
   });
@@ -187,7 +194,12 @@ export async function createPayPalOrder(
       const current = await tx.paymentOrder.findUniqueOrThrow({ where: { id: order.id } });
       await tx.paymentOperation.update({
         where: { id: staged.operation!.id },
-        data: { status: "SUCCEEDED", providerRef: provider.id, debugId: provider.debugId ?? null },
+        data: {
+          status: "SUCCEEDED",
+          providerRef: provider.id,
+          debugId: provider.debugId ?? null,
+          nextAttemptAt: null,
+        },
       });
       await tx.paymentOrder.update({
         where: { id: order.id },
@@ -251,15 +263,27 @@ export async function recordApproval(
     throw new PaymentError("PROVIDER_UNAVAILABLE", "PayPal approval status could not be checked", true);
   }
   validatePayPalOrder(order, provider);
-  if (provider.status === "COMPLETED") return applyProviderOrder(order, provider, deps, "RECONCILE");
+  if (provider.status === "COMPLETED") {
+    await deps.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM "payment_orders" WHERE "id" = ${order.id} FOR UPDATE`;
+      const current = await tx.paymentOrder.findUniqueOrThrow({ where: { id: order.id } });
+      if (current.status === "PAID" || current.status === "REFUNDED") {
+        await transitionOrder(tx, {
+          orderId: current.id,
+          fromStatus: current.status,
+          toStatus: "APPROVED",
+          source: "PAYPAL",
+          detail: { providerOrderId: provider.id, debugId: provider.debugId ?? null },
+        });
+      }
+    });
+    return applyProviderOrder(order, provider, deps, "RECONCILE");
+  }
   if (provider.status !== "APPROVED") return order;
   return deps.prisma.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT "id" FROM "payment_orders" WHERE "id" = ${order.id} FOR UPDATE`;
     const current = await tx.paymentOrder.findUniqueOrThrow({ where: { id: order.id } });
     if (current.status === "APPROVED") return current;
-    if (current.status !== "PROVIDER_CREATED" && current.status !== "RECONCILING") {
-      throw new PaymentError("INVALID_STATE", "Checkout cannot be approved in its current state");
-    }
     await transitionOrder(tx, {
       orderId: current.id,
       fromStatus: current.status,

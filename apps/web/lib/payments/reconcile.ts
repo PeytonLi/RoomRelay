@@ -75,7 +75,6 @@ export async function reconcileOrder(orderId: string, deps: PaymentDeps) {
             lastErrorCode: "retry_exhausted",
           },
         });
-        await protectHold(tx, current.holdId);
         await tx.paymentOrder.update({
           where: { id: orderId },
           data: { operatorAttention: true, exceptionReason: "reconciliation_exhausted" },
