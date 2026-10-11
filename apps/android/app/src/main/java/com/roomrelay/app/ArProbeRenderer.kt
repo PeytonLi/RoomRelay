@@ -99,6 +99,33 @@ internal class ArProbeRenderer(
     private var fps = 0
     private var latestSnapshot = MeasureSnapshot()
 
+    enum class TapMode { MEASURE, CANDIDATE }
+
+    /** Per-draw inference hook (frame gate + camera-image copy). */
+    @Volatile
+    var frameHook: ((Frame, Long) -> Unit)? = null
+
+    /** Latest candidate boxes in sensor-image pixels: (trackId, label, score, box). */
+    @Volatile
+    var imageBoxes: List<CandidateImageBox> = emptyList()
+
+    /** Publishes overlay boxes in view pixels after each draw. */
+    @Volatile
+    var onOverlay: ((List<OverlayBox>) -> Unit)? = null
+
+    /** Candidate tap succeeded: (trackId, anchor, hitType). */
+    @Volatile
+    var onCandidateAnchor: ((Long, Anchor, String) -> Unit)? = null
+
+    /** Called when a candidate tap cannot produce an anchor. */
+    @Volatile
+    var onTapMessage: ((String) -> Unit)? = null
+
+    @Volatile
+    var tapMode: TapMode = TapMode.MEASURE
+
+    private var overlayBoxes: List<OverlayBox> = emptyList()
+
     fun queueTap(event: MotionEvent) {
         pendingTaps.offer(MotionEvent.obtain(event))
     }
@@ -170,6 +197,8 @@ internal class ArProbeRenderer(
             processTap(frame)
             val snapshot = collectFrame(session, frame)
             drawMeasurements(frame)
+            frameHook?.invoke(frame, SystemClock.elapsedRealtimeNanos())
+            publishOverlay(frame)
             if (frame.timestamp != lastTimestamp) {
                 lastTimestamp = frame.timestamp
                 val nowNs = SystemClock.elapsedRealtimeNanos()
@@ -364,6 +393,10 @@ internal class ArProbeRenderer(
         }
         val tap = pendingTaps.poll() ?: return
         try {
+            if (tapMode == TapMode.CANDIDATE) {
+                processCandidateTap(frame, tap.x, tap.y)
+                return
+            }
             if (anchorA != null && anchorB != null) {
                 statusMessage = "Save or reset this trial first"
                 return
@@ -393,6 +426,82 @@ internal class ArProbeRenderer(
             statusMessage = "Could not set measurement point (${exception.javaClass.simpleName})"
         } finally {
             tap.recycle()
+        }
+    }
+
+    /**
+     * Maps candidate boxes from sensor-image pixels to display-rotated view
+     * pixels so the Compose overlay lines up with the camera preview.
+     */
+    private fun publishOverlay(frame: Frame) {
+        val boxes = imageBoxes
+        if (boxes.isEmpty()) {
+            if (overlayBoxes.isNotEmpty()) {
+                overlayBoxes = emptyList()
+                onOverlay?.invoke(emptyList())
+            }
+            return
+        }
+        val mapped = boxes.mapNotNull { candidate ->
+            val corners = floatArrayOf(
+                candidate.box.left, candidate.box.top,
+                candidate.box.right, candidate.box.bottom,
+            )
+            val viewCorners = FloatArray(4)
+            try {
+                frame.transformCoordinates2d(
+                    Coordinates2d.IMAGE_PIXELS,
+                    corners,
+                    Coordinates2d.VIEW,
+                    viewCorners,
+                )
+            } catch (exception: Exception) {
+                return@mapNotNull null
+            }
+            OverlayBox(
+                trackId = candidate.trackId,
+                category = candidate.category,
+                cocoLabel = candidate.cocoLabel,
+                score = candidate.score,
+                viewRect = android.graphics.RectF(
+                    minOf(viewCorners[0], viewCorners[2]),
+                    minOf(viewCorners[1], viewCorners[3]),
+                    maxOf(viewCorners[0], viewCorners[2]),
+                    maxOf(viewCorners[1], viewCorners[3]),
+                ),
+                ambiguous = candidate.ambiguous,
+            )
+        }
+        overlayBoxes = mapped
+        onOverlay?.invoke(mapped)
+    }
+
+    /** A tap inside a candidate box becomes an anchor via hit testing. */
+    private fun processCandidateTap(frame: Frame, x: Float, y: Float) {
+        val hit = overlayBoxes.firstOrNull { it.viewRect.contains(x, y) }
+        if (hit == null) {
+            statusMessage = "Tap inside a highlighted item box."
+            onTapMessage?.invoke(statusMessage)
+            return
+        }
+        if (frame.camera.trackingState != TrackingState.TRACKING) {
+            statusMessage = "Wait for camera tracking before tapping."
+            onTapMessage?.invoke(statusMessage)
+            return
+        }
+        try {
+            val candidates = frame.hitTest(x, y).map { result -> toCandidate(result) }
+            val selected = HitSelectionPolicy.select(candidates)
+            if (selected == null) {
+                statusMessage = "No usable surface under that item. Try a different spot."
+                onTapMessage?.invoke(statusMessage)
+                return
+            }
+            val anchor = selected.hit.createAnchor()
+            onCandidateAnchor?.invoke(hit.trackId, anchor, selected.label)
+        } catch (exception: Exception) {
+            statusMessage = "Could not anchor this item (${exception.javaClass.simpleName})."
+            onTapMessage?.invoke(statusMessage)
         }
     }
 
