@@ -30,8 +30,8 @@ No private room media, credentials, merchant identities, or customer information
 Requirements: Node 20.19+, pnpm via `corepack enable`, PostgreSQL 18 (see `docker-compose.yml`, or a native install).
 
 ```sh
-pnpm install
 cp .env.example .env          # fill in DATABASE_URL at minimum
+pnpm install
 pnpm fixtures:fetch           # downloads the pinned public SheenChair.glb
 pnpm db:migrate               # prisma migrate deploy + generate
 pnpm dev                      # http://localhost:3000 (viewer) and /api/health
