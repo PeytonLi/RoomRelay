@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="@color/roomrelay_icon_foreground"
+        android:pathData="M24,34 L54,20 L84,34 L84,72 L54,88 L24,72 Z" />
+    <path
+        android:fillColor="@color/roomrelay_icon_background"
+        android:pathData="M32,39 L54,29 L76,39 L54,50 Z M32,46 L50,55 L50,76 L32,67 Z M58,55 L76,46 L76,67 L58,76 Z" />
+</vector>
