@@ -129,6 +129,9 @@ model Item {
   seller          User            @relation("ItemSeller", fields: [sellerId], references: [id], onDelete: Cascade)
   versions        ListingVersion[]
   assets          Asset[]
+  quoteLines      QuoteLine[]
+  inventory       ItemInventory?
+  inventoryHoldItems InventoryHoldItem[]
 
   @@map("items")
 }
@@ -251,4 +254,294 @@ model MeasurementEvidence {
   createdAt   DateTime       @default(now()) @map("created_at")
 
   @@map("measurement_evidence")
+}
+
+enum QuoteStatus {
+  REQUESTED
+  SELLER_APPROVED
+  BUYER_APPROVED
+  SUPERSEDED
+  EXPIRED
+  REJECTED
+}
+
+enum InventoryState {
+  AVAILABLE
+  HELD
+  PAYMENT_PENDING
+  SOLD
+}
+
+enum HoldState {
+  ACTIVE
+  CAPTURE_PENDING
+  CONSUMED
+  RELEASED
+  EXPIRED
+  EXCEPTION
+}
+
+enum PaymentStatus {
+  CREATED
+  PROVIDER_CREATED
+  APPROVED
+  CAPTURE_SUBMITTING
+  PENDING
+  RECONCILING
+  PAID
+  CANCELED
+  EXPIRED
+  FAILED
+  PARTIALLY_REFUNDED
+  REFUNDED
+  REVERSED
+  EXCEPTION
+}
+
+enum PaymentOperationType {
+  CREATE
+  CAPTURE
+}
+
+enum OperationStatus {
+  STAGED
+  SUBMITTED
+  UNKNOWN
+  PENDING
+  SUCCEEDED
+  FAILED
+}
+
+enum RefundStatus {
+  STAGED
+  SUBMITTED
+  PENDING
+  COMPLETED
+  FAILED
+  RECONCILING
+}
+
+enum WebhookProcessingState {
+  RECEIVED
+  PROCESSED
+  IGNORED
+  FAILED
+}
+
+model Quote {
+  id                 String      @id @default(uuid())
+  buyerId            String      @map("buyer_id")
+  sellerId           String      @map("seller_id")
+  version            Int
+  previousQuoteId    String?     @unique @map("previous_quote_id")
+  status             QuoteStatus @default(REQUESTED)
+  environment        String
+  merchantId         String      @map("merchant_id")
+  currency           String      @default("USD")
+  subtotalCents      Int         @map("subtotal_cents")
+  discountCents      Int         @default(0) @map("discount_cents")
+  totalCents         Int         @map("total_cents")
+  roomId             String?     @map("room_id")
+  roomRevision       Int?        @map("room_revision")
+  layoutRevisionId   String?     @map("layout_revision_id")
+  pickupSlotStart    DateTime    @map("pickup_slot_start")
+  pickupSlotEnd      DateTime    @map("pickup_slot_end")
+  termsVersion       String      @map("terms_version")
+  acknowledgedWarnings Json?     @map("acknowledged_warnings")
+  contentHash        String      @map("content_hash")
+  sellerApprovedAt   DateTime?   @map("seller_approved_at")
+  buyerApprovedAt    DateTime?   @map("buyer_approved_at")
+  expiresAt          DateTime?   @map("expires_at")
+  createdAt          DateTime    @default(now()) @map("created_at")
+  updatedAt          DateTime    @updatedAt @map("updated_at")
+
+  previousQuote Quote?          @relation("QuoteRevisions", fields: [previousQuoteId], references: [id], onDelete: SetNull)
+  nextQuotes    Quote[]         @relation("QuoteRevisions")
+  lines         QuoteLine[]
+  holds         InventoryHold[]
+  orders        PaymentOrder[]
+
+  @@index([buyerId, status])
+  @@index([sellerId, status])
+  @@map("quotes")
+}
+
+model QuoteLine {
+  id                 String   @id @default(uuid())
+  quoteId            String   @map("quote_id")
+  itemId             String   @map("item_id")
+  itemUpdatedAt      DateTime @map("item_updated_at")
+  title              String
+  widthM             Decimal? @map("width_m") @db.Decimal(7, 4)
+  depthM             Decimal? @map("depth_m") @db.Decimal(7, 4)
+  heightM            Decimal? @map("height_m") @db.Decimal(7, 4)
+  conditionDisclosure String?  @map("condition_disclosure")
+  priceCents         Int      @map("price_cents")
+  quote              Quote    @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  item               Item     @relation(fields: [itemId], references: [id], onDelete: Restrict)
+
+  @@unique([quoteId, itemId])
+  @@index([itemId])
+  @@map("quote_lines")
+}
+
+model ItemInventory {
+  itemId    String         @id @map("item_id")
+  state     InventoryState @default(AVAILABLE)
+  holdId    String?        @map("hold_id")
+  version   Int            @default(0)
+  updatedAt DateTime       @updatedAt @map("updated_at")
+  item      Item           @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  hold      InventoryHold? @relation("InventoryHoldOwner", fields: [holdId], references: [id], onDelete: Restrict)
+
+  @@index([holdId])
+  @@map("item_inventory")
+}
+
+model InventoryHold {
+  id               String    @id @default(uuid())
+  quoteId          String    @map("quote_id")
+  buyerId          String    @map("buyer_id")
+  state            HoldState @default(ACTIVE)
+  expiresAt        DateTime  @map("expires_at")
+  idempotencyKey   String    @map("idempotency_key")
+  requestHash      String    @map("request_hash")
+  activeQuoteLock  String?   @unique @map("active_quote_lock")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+  releasedAt       DateTime? @map("released_at")
+  quote            Quote     @relation(fields: [quoteId], references: [id], onDelete: Restrict)
+  items            InventoryHoldItem[]
+  inventoryOwners  ItemInventory[] @relation("InventoryHoldOwner")
+  order            PaymentOrder?
+
+  @@unique([buyerId, idempotencyKey])
+  @@index([state, expiresAt])
+  @@map("inventory_holds")
+}
+
+model InventoryHoldItem {
+  holdId String        @map("hold_id")
+  itemId String        @map("item_id")
+  hold   InventoryHold @relation(fields: [holdId], references: [id], onDelete: Cascade)
+  item   Item          @relation(fields: [itemId], references: [id], onDelete: Restrict)
+
+  @@id([holdId, itemId])
+  @@index([itemId])
+  @@map("inventory_hold_items")
+}
+
+model PaymentOrder {
+  id                 String        @id @default(uuid())
+  holdId             String        @unique @map("hold_id")
+  quoteId            String        @map("quote_id")
+  buyerId            String        @map("buyer_id")
+  sellerId           String        @map("seller_id")
+  environment        String
+  merchantId         String        @map("merchant_id")
+  currency           String        @default("USD")
+  amountCents        Int           @map("amount_cents")
+  status             PaymentStatus @default(CREATED)
+  providerOrderId    String?       @unique @map("provider_order_id")
+  approveUrl         String?       @map("approve_url")
+  providerCaptureId  String?       @unique @map("provider_capture_id")
+  capturedCents      Int           @default(0) @map("captured_cents")
+  refundedCents      Int           @default(0) @map("refunded_cents")
+  cancelRequestedAt  DateTime?     @map("cancel_requested_at")
+  paidAt             DateTime?     @map("paid_at")
+  operatorAttention  Boolean       @default(false) @map("operator_attention")
+  exceptionReason    String?       @map("exception_reason")
+  version            Int           @default(0)
+  createdAt          DateTime      @default(now()) @map("created_at")
+  updatedAt          DateTime      @updatedAt @map("updated_at")
+  hold               InventoryHold @relation(fields: [holdId], references: [id], onDelete: Restrict)
+  quote              Quote         @relation(fields: [quoteId], references: [id], onDelete: Restrict)
+  operations         PaymentOperation[]
+  events             PaymentEvent[]
+  refund             Refund?
+
+  @@index([buyerId, createdAt])
+  @@index([sellerId, createdAt])
+  @@map("payment_orders")
+}
+
+model PaymentOperation {
+  id             String               @id @default(uuid())
+  orderId        String               @map("order_id")
+  type           PaymentOperationType
+  requestId      String               @unique @map("request_id")
+  status         OperationStatus      @default(STAGED)
+  attempts       Int                  @default(0)
+  nextAttemptAt  DateTime?            @map("next_attempt_at")
+  providerRef    String?              @map("provider_ref")
+  debugId        String?              @map("debug_id")
+  lastErrorCode  String?              @map("last_error_code")
+  createdAt      DateTime             @default(now()) @map("created_at")
+  updatedAt      DateTime             @updatedAt @map("updated_at")
+  order          PaymentOrder         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@unique([orderId, type])
+  @@index([status, nextAttemptAt])
+  @@map("payment_operations")
+}
+
+model PaymentEvent {
+  id         String        @id @default(uuid())
+  orderId    String        @map("order_id")
+  fromStatus PaymentStatus? @map("from_status")
+  toStatus   PaymentStatus? @map("to_status")
+  kind       String
+  source     String
+  detail     Json?
+  createdAt  DateTime      @default(now()) @map("created_at")
+  order      PaymentOrder  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId, createdAt])
+  @@map("payment_events")
+}
+
+model Refund {
+  id              String       @id @default(uuid())
+  orderId         String       @unique @map("order_id")
+  captureId       String       @map("capture_id")
+  amountCents     Int          @map("amount_cents")
+  currency        String       @default("USD")
+  requestId       String       @unique @map("request_id")
+  requestKey      String       @map("request_key")
+  providerRefundId String?     @unique @map("provider_refund_id")
+  status          RefundStatus @default(STAGED)
+  attempts        Int          @default(0)
+  nextAttemptAt   DateTime?    @map("next_attempt_at")
+  debugId         String?      @map("debug_id")
+  lastErrorCode   String?      @map("last_error_code")
+  initiatorId     String       @map("initiator_id")
+  initiatorRole   String       @map("initiator_role")
+  reason          String
+  createdAt       DateTime     @default(now()) @map("created_at")
+  updatedAt       DateTime     @updatedAt @map("updated_at")
+  order           PaymentOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@map("refunds")
+}
+
+model WebhookEvent {
+  id                 String                 @id @default(uuid())
+  environment        String
+  providerEventId    String                 @map("provider_event_id")
+  eventType          String                 @map("event_type")
+  resourceType       String?                @map("resource_type")
+  resourceId         String?                @map("resource_id")
+  relatedOrderId     String?                @map("related_order_id")
+  payloadSha256      String                 @map("payload_sha256")
+  minimal            Json
+  verificationStatus String                 @map("verification_status")
+  processingState    WebhookProcessingState @default(RECEIVED) @map("processing_state")
+  attempts           Int                    @default(0)
+  lastError          String?                @map("last_error")
+  receivedAt         DateTime               @default(now()) @map("received_at")
+  processedAt        DateTime?              @map("processed_at")
+
+  @@unique([environment, providerEventId])
+  @@index([processingState, receivedAt])
+  @@map("paypal_webhook_events")
 }

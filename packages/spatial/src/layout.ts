@@ -4,6 +4,10 @@ import type { ConfirmedDimsM, LayoutFinding, LayoutResult, Placement, PlacedItem
 
 export const DEFAULT_MARGIN_M = 0.05;
 
+/** Float tolerance for clearance comparisons: placements that are
+ * mathematically at a boundary can land a hair short after rotation math. */
+export const GEOMETRY_EPSILON_M = 1e-6;
+
 /** Rotated rectangle footprint corners (XZ) of an item at a placement.
  * The item local frame has width on X, depth on Z, footprint centered at 0. */
 export function footprintXZ(
@@ -87,7 +91,7 @@ export function validateLayout(
           message: `${item.title ?? item.id}: footprint reaches outside the room boundary.`,
         }),
       );
-    } else if (minClear < margin) {
+    } else if (minClear < margin - GEOMETRY_EPSILON_M) {
       findings.push(
         finding({
           code: "BOUNDARY_MARGIN",
@@ -173,13 +177,13 @@ export function validateLayout(
       findings.push(
         finding({
           code: "HEIGHT_VS_CEILING",
-          status: headroom >= 0 ? "PASS" : "FAIL",
+          status: headroom >= -GEOMETRY_EPSILON_M ? "PASS" : "FAIL",
           itemIds: [item.id],
           geometryRefs: ["ceiling"],
           measuredValue: item.dimsM.heightM,
           threshold: room.ceilingHeightM,
           message:
-            headroom >= 0
+            headroom >= -GEOMETRY_EPSILON_M
               ? `${item.title ?? item.id}: ${item.dimsM.heightM.toFixed(2)}m tall under a ${room.ceilingHeightM.toFixed(2)}m ceiling.`
               : `${item.title ?? item.id}: ${item.dimsM.heightM.toFixed(2)}m tall exceeds the ${room.ceilingHeightM.toFixed(2)}m ceiling.`,
         }),
