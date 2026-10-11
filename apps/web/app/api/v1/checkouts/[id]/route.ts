@@ -13,12 +13,15 @@ export async function GET(
       checkout: {
         id: order.id,
         status: order.status,
+        environment: order.environment,
+        merchantId: order.merchantId,
         amountCents: order.amountCents,
         currency: order.currency,
         providerOrderId: order.providerOrderId,
         approveUrl: order.approveUrl,
         capturedCents: order.capturedCents,
         refundedCents: order.refundedCents,
+        paidAt: order.paidAt?.toISOString() ?? null,
         hold: { state: order.hold.state, expiresAt: order.hold.expiresAt },
         quote: {
           id: order.quote.id,
