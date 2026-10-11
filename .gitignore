@@ -11,6 +11,7 @@
 local.properties
 node_modules/
 .next/
+.next-e2e/
 dist/
 build/
 .gradle/

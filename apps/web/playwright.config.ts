@@ -14,7 +14,7 @@ export default defineConfig({
   },
   projects: [{ name: "chromium", use: { browserName: "chromium" } }],
   webServer: {
-    command: `pnpm dev -p ${PORT}`,
+    command: `pnpm exec next dev -p ${PORT}`,
     url: `http://localhost:${PORT}`,
     reuseExistingServer: false,
     timeout: 120_000,
@@ -23,6 +23,7 @@ export default defineConfig({
       CLERK_SECRET_KEY: "",
       NEXT_PUBLIC_CLERK_KEYLESS_DISABLED: "1",
       ROOMRELAY_TEST_IDENTITY: "enabled",
+      ROOMRELAY_E2E_SERVER: "1",
       NEXT_PUBLIC_PAYPAL_CLIENT_ID: "",
       PAYPAL_CLIENT_SECRET: "",
       PAYPAL_WEBHOOK_ID: "",

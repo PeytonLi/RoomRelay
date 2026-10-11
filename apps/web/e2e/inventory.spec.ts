@@ -48,5 +48,5 @@ test("seller can publish a listing and buyer can create a room", async ({ page, 
   await page.getByLabel("Room name").fill("E2E bedroom");
   await page.getByRole("button", { name: "Create room" }).click();
   await expect(page.getByRole("status")).toContainText("Created E2E bedroom");
-  await expect(page.getByText(/E2E bedroom/)).toBeVisible();
+  await expect(page.getByRole("listitem").filter({ hasText: /E2E bedroom/ }).first()).toBeVisible();
 });
