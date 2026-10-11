@@ -40,13 +40,23 @@ Blocker or risk (if any): Docker Linux engine unavailable on the build VM (compo
 Next task: T-002 S24 run of the probe APK; then a real scan import.
 ```
 
+```text
+Date / task / owner: 2026-10-11 / T-005 + TEST-04 / Devin (session https://app.devin.ai/sessions/fd9362af0cea4b77a3a133144d9a058a)
+State and user-visible result: IN_PROGRESS (in review). POST /api/planning/proposal returns a real DeepSeek proposal for the synthetic fixture room + synthetic inventory: server-validated item IDs/placements/rationale, a clarification question, or a manual-placement fallback. Returns 503 `unavailable` (never a canned recommendation) when the AI capability is missing. Proposals live in the response only (no Prisma/schema change).
+Files and commit: packages/planning (schema, provider, prompt, validate, propose, tests, eval/), apps/web/lib/planning.ts, apps/web/app/api/planning/proposal/route.ts, apps/web/fixtures/inventory.synthetic.json; branch devin/1791692441-t005-ai-proposal.
+Checks actually run and results: pnpm typecheck pass (4 projects); vitest 72/72 (spatial 19, assets 6, planning 32, web 15); next build pass. LIVE eval `pnpm --filter @roomrelay/planning eval:live` against model id `deepseek-flash` (response model `deepseek-flash`, json_object, thinking disabled, temperature 0.2, 20s timeout): run 1 passed 10/13 cases, validated-proposal rate 5/7, 22 calls, 0 unsafe outputs accepted (failures: two spatial-FAIL repairs that fell back to manual placement, one malformed constraintChanges); after adding server-derived center-range hints and the constraintChanges shape to the prompt, run 2 passed 13/13, validated-proposal rate 7/7, first-call acceptance 11/13, 15 real calls, median latency 1.4s, 36,917 tokens, 0 unsafe outputs accepted. One real request through `next start` returned state `proposal`.
+Requirements satisfied / remaining: FR-14 / A-05 structured contract with invented-ID, price, one-seller, budget and spatial (validateLayout) authority, one bounded repair, timeout/refusal/invalid-JSON handling, delimited untrusted listing text, per-call model/config/latency/token logs. Remaining: real inventory/room from the DB (route uses synthetic fixtures), UI for proposals, OPEN-05 provider choice is only exercised with DeepSeek, eval is 13 cases on one room and is not a statistical quality measure.
+Blocker or risk (if any): Model output varies run to run (run 1 vs run 2). Spatial BOUNDARY_MARGIN uses a strict `<` with no float epsilon, so a placement exactly at the 0.05 m margin fails; prompt hints keep a 0.02 m buffer instead of changing packages/spatial. `rtk` is not installed on the Windows VM, so commands ran without it.
+Next task: persist proposals once the schema owners land the layout tables; wire the proposal into the viewer.
+```
+
 ## Milestone ledger
 
 | Milestone | State | Exit evidence |
 | --- | --- | --- |
 | M0 foundation/feasibility | IN_PROGRESS | Toolchain/config/known-length device and scan-export results. |
 | M1 actual item in room | IN_PROGRESS (synthetic only) | Independent permitted asset, scale/orientation and interactive preview. |
-| M2 data/AI planning | TODO | Auth/private inventory/layout/quotes and real constrained model call. |
+| M2 data/AI planning | IN_PROGRESS (T-005 in review) | Real constrained DeepSeek call validated against synthetic fixtures; auth/private inventory/layout/quotes remain. |
 | M3 sandbox commerce | TODO | Actual capture/refund plus race/recovery checks. |
 | M4 live Android capture | TODO | Actual S24 live inference, guided capture and API sync. |
 | M5 complete prototype | TODO | AC-01..12 with evidence and full demo. |
@@ -56,7 +66,7 @@ Next task: T-002 S24 run of the probe APK; then a real scan import.
 ## Open prerequisites and limits
 
 - No exact S24 variant/runtime, permitted room/item assets or device performance result is available.
-- No Clerk, PayPal sandbox, AI model or private storage configuration was created.
+- No Clerk, PayPal sandbox or private storage configuration was created. AI: a DeepSeek key is used only from local ignored env (`apps/web/.env`) for T-005.
 - No provider credentials belong in this file or Git. Use configuration placeholders and secret storage.
 - No marketplace production approval, protection claim, live money or public app deployment exists.
 - Model category limits, scan fidelity, geometry error, costs and user demand remain validation tasks. See OPEN-01..10 in REFERENCES_AND_DECISIONS.md.

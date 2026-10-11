@@ -1,0 +1,25 @@
+{
+  "name": "@roomrelay/planning",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "eval:live": "vitest run --config vitest.live.config.ts"
+  },
+  "dependencies": {
+    "@roomrelay/spatial": "workspace:*",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "24.5.2",
+    "dotenv": "17.2.3",
+    "typescript": "5.9.3",
+    "vitest": "4.1.11"
+  }
+}

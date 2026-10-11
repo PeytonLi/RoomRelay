@@ -1,0 +1,72 @@
+{
+  "synthetic": true,
+  "notes": "Synthetic candidate inventory for planning tests and the live eval. Names, sellers, prices and dimensions are illustrative, not real listings. Prices are USD cents.",
+  "items": [
+    {
+      "itemId": "desk-oak-120",
+      "title": "Oak writing desk",
+      "category": "desk",
+      "sellerId": "seller-a",
+      "sellerName": "Alex (synthetic seller)",
+      "priceCents": 8000,
+      "currency": "USD",
+      "confirmedDimsM": { "widthM": 1.2, "depthM": 0.6, "heightM": 0.75 },
+      "listingText": "Solid oak desk, one drawer. Light scratches on the top. Pickup only."
+    },
+    {
+      "itemId": "chair-task-01",
+      "title": "Mesh task chair",
+      "category": "chair",
+      "sellerId": "seller-a",
+      "sellerName": "Alex (synthetic seller)",
+      "priceCents": 2500,
+      "currency": "USD",
+      "confirmedDimsM": { "widthM": 0.5, "depthM": 0.55, "heightM": 0.9 },
+      "listingText": "Adjustable height mesh chair, armrests work."
+    },
+    {
+      "itemId": "shelf-pine-80",
+      "title": "Pine bookshelf, 5 shelves",
+      "category": "bookshelf",
+      "sellerId": "seller-a",
+      "sellerName": "Alex (synthetic seller)",
+      "priceCents": 4000,
+      "currency": "USD",
+      "confirmedDimsM": { "widthM": 0.8, "depthM": 0.3, "heightM": 1.8 },
+      "listingText": "Tall pine bookshelf. Anchor strap included."
+    },
+    {
+      "itemId": "dresser-6d",
+      "title": "Six-drawer dresser",
+      "category": "dresser",
+      "sellerId": "seller-b",
+      "sellerName": "Blair (synthetic seller)",
+      "priceCents": 12000,
+      "currency": "USD",
+      "confirmedDimsM": { "widthM": 1.0, "depthM": 0.5, "heightM": 0.9 },
+      "listingText": "White six-drawer dresser, all runners smooth."
+    },
+    {
+      "itemId": "sofa-3seat",
+      "title": "Three-seat sofa",
+      "category": "sofa",
+      "sellerId": "seller-b",
+      "sellerName": "Blair (synthetic seller)",
+      "priceCents": 30000,
+      "currency": "USD",
+      "confirmedDimsM": { "widthM": 2.6, "depthM": 0.95, "heightM": 0.85 },
+      "listingText": "Grey fabric sofa, no pets, no smoke."
+    },
+    {
+      "itemId": "wardrobe-tall",
+      "title": "Tall double wardrobe",
+      "category": "wardrobe",
+      "sellerId": "seller-b",
+      "sellerName": "Blair (synthetic seller)",
+      "priceCents": 9000,
+      "currency": "USD",
+      "confirmedDimsM": { "widthM": 1.0, "depthM": 0.6, "heightM": 2.6 },
+      "listingText": "Very tall wardrobe with hanging rail."
+    }
+  ]
+}
