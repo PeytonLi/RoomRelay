@@ -288,7 +288,7 @@ dbDescribe("T-008 orders, handoff and support", () => {
   });
 
   it("quote line and order view carry the published listing's condition notes", async () => {
-    const { item, order } = await paidOrder("Noted item");
+    const { order } = await paidOrder("Noted item");
     // The seeded item was published without condition notes → snapshot is null.
     setTestIdentity("t008-buyer");
     const view = await (await getOrder(new Request("http://localhost"), params(order.id))).json();
