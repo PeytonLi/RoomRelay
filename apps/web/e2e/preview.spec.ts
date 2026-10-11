@@ -9,7 +9,9 @@ async function waitReady(page: Page) {
 
 test("page loads, canvas renders, default placement fits", async ({ page }) => {
   await waitReady(page);
-  await expect(page.locator("canvas")).toBeVisible();
+  // First load compiles the dynamic three.js chunk on the dev server; allow
+  // longer than the default 5s assertion timeout for that cold path.
+  await expect(page.locator("canvas")).toBeVisible({ timeout: 30_000 });
   await expect(page.getByTestId("verdict")).toHaveText("Fits provided measurements");
   await page.waitForTimeout(1200); // let a few frames render
   await page.screenshot({ path: `${EVIDENCE}\\desktop-1440-default.png`, fullPage: true });
