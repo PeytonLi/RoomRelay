@@ -4,7 +4,7 @@ import kotlinx.serialization.Serializable
 
 @Serializable
 data class ProbeReport(
-    val schemaVersion: Int = 1,
+    val schemaVersion: Int = 2,
     val generatedAtUtc: String,
     val app: AppInfo,
     val device: DeviceInfo,
@@ -13,6 +13,17 @@ data class ProbeReport(
     val measurements: List<MeasurementTrial>,
     val sessionLog: SessionLog?,
     val notes: String,
+    val detectorModel: DetectorModelInfo? = null,
+    val inference: com.roomrelay.app.core.inference.InferenceTelemetrySnapshot? = null,
+    val captures: List<com.roomrelay.app.core.capture.CaptureSession> = emptyList(),
+)
+
+/** Identity and pin of the on-device detector model; never the model bytes. */
+@Serializable
+data class DetectorModelInfo(
+    val id: String,
+    val url: String,
+    val sha256: String,
 )
 
 @Serializable
