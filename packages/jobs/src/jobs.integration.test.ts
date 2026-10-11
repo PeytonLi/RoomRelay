@@ -91,7 +91,7 @@ databaseSuite("PgJobQueue integration", () => {
       type text NOT NULL, id text NOT NULL, current_version integer NOT NULL,
       deleted boolean NOT NULL DEFAULT false, PRIMARY KEY(type,id)
     )`);
-    queue = new PgJobQueue(pool, { retry: { baseDelayMs: 50, maxDelayMs: 250 } });
+    queue = new PgJobQueue(pool, { retry: { baseDelayMs: 1000, maxDelayMs: 2000 } });
   });
 
   beforeEach(async () => {
@@ -140,12 +140,12 @@ databaseSuite("PgJobQueue integration", () => {
     expect(await queue.fail(job!.id, job!.leaseToken!, { reason: "temporary", retryable: true })).toBe("RETRY_SCHEDULED");
     expect(await queue.lease({ workerId: "retry", types: ["test"], leaseMs: 5000 })).toBeNull();
     let current = await queue.get(job!.id);
-    await delay(Math.max(0, current!.runAfter.getTime() - Date.now() + 5));
+    await delay(Math.max(0, current!.runAfter.getTime() - Date.now() + 50));
     job = await queue.lease({ workerId: "retry", types: ["test"], leaseMs: 5000 });
     expect(job?.attempts).toBe(2);
     expect(await queue.fail(job!.id, job!.leaseToken!, { reason: "temporary", retryable: true })).toBe("RETRY_SCHEDULED");
     current = await queue.get(job!.id);
-    await delay(Math.max(0, current!.runAfter.getTime() - Date.now() + 5));
+    await delay(Math.max(0, current!.runAfter.getTime() - Date.now() + 50));
     job = await queue.lease({ workerId: "retry", types: ["test"], leaseMs: 5000 });
     expect(job?.attempts).toBe(3);
     expect(await queue.fail(job!.id, job!.leaseToken!, { reason: "temporary", retryable: true })).toBe("FAILED");
