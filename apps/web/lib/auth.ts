@@ -39,3 +39,18 @@ export async function requireUser(): Promise<RequireUserResult> {
   if (!userId) return { ok: false, response: apiError("UNAUTHENTICATED", "authentication required", 401) };
   return findOrCreateUser(userId);
 }
+
+export async function getOptionalUser(): Promise<User | null> {
+  const testSubject = await getTestIdentity();
+  if (testSubject) {
+    const result = await findOrCreateUser(testSubject);
+    return result.ok ? result.user : null;
+  }
+
+  if (getConfig().capabilities.identity.status === "unavailable") return null;
+
+  const { userId } = await (await import("@clerk/nextjs/server")).auth();
+  if (!userId) return null;
+  const result = await findOrCreateUser(userId);
+  return result.ok ? result.user : null;
+}

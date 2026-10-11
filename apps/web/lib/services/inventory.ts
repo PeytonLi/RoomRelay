@@ -86,6 +86,8 @@ export async function patchItem(
     const item = await tx.item.findFirst({ where: { id, sellerId: user.id } });
     if (!item) return { kind: "not-found" };
     if (item.status === "RESERVED" || item.status === "SOLD") return { kind: "locked" };
+    const inventory = await tx.itemInventory.findUnique({ where: { itemId: id }, select: { state: true } });
+    if (inventory && inventory.state !== "AVAILABLE") return { kind: "locked" };
     if (item.version !== expectedVersion) return { kind: "stale" };
 
     const current = await tx.listingVersion.findUnique({
@@ -143,6 +145,8 @@ export async function publishItem(
     const item = await tx.item.findFirst({ where: { id, sellerId: user.id } });
     if (!item) return { kind: "not-found" };
     if (item.status === "RESERVED" || item.status === "SOLD") return { kind: "locked" };
+    const inventory = await tx.itemInventory.findUnique({ where: { itemId: id }, select: { state: true } });
+    if (inventory && inventory.state !== "AVAILABLE") return { kind: "locked" };
     if (item.version !== expectedVersion) return { kind: "stale" };
     const listingVersion = await tx.listingVersion.findUnique({
       where: { itemId_version: { itemId: item.id, version: item.currentVersion } },

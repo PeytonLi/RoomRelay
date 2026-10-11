@@ -16,6 +16,7 @@ import { POST as createUpload } from "../../app/api/v1/uploads/route";
 import { PUT as putUploadContent } from "../../app/api/v1/uploads/[id]/content/route";
 import { POST as finalizeUpload } from "../../app/api/v1/uploads/[id]/finalize/route";
 import { getPrisma } from "../../lib/db";
+import { getObjectStore } from "../../lib/object-store";
 import { setTestIdentity } from "../../lib/test-identity";
 
 const prisma = getPrisma();
@@ -114,6 +115,16 @@ describe("T-004 route integration", () => {
       bytes: 8,
       sha256: "b".repeat(64),
     })));
+    const objectStore = getObjectStore();
+    if (!objectStore.available) throw new Error("Local object store must be available in integration tests");
+    const privateBytes = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]);
+    await objectStore.store.put(photo.objectKey, privateBytes);
+    const ownerDownload = await getAssetDownloadRoute(
+      new Request("http://localhost"),
+      { params: Promise.resolve({ id: photo.id }) },
+    );
+    expect(ownerDownload.status).toBe(200);
+    expect(new Uint8Array(await ownerDownload.arrayBuffer())).toEqual(privateBytes);
 
     setTestIdentity("bob");
     expect((await getRoom(new Request("http://localhost"), { params: Promise.resolve({ id: room.id }) })).status).toBe(404);
@@ -140,6 +151,55 @@ describe("T-004 route integration", () => {
       requirements: { budgetCents: 10000, pickupFrom: "2026-05-01T00:00:00.000Z", pickupTo: "2026-05-04T00:00:00.000Z" },
     }));
     expect(layout.status).toBe(404);
+  });
+
+  it("locks seller item mutations while payment inventory is unavailable", async () => {
+    const seller = await ensureUser("inventory-lock-seller");
+    const photo = await createPhoto(seller.id);
+    setTestIdentity("inventory-lock-seller");
+    const { itemId } = await createAndPublishListing(photo.id);
+    const item = await prisma!.item.findUniqueOrThrow({ where: { id: itemId } });
+    const pickupSlotStart = new Date("2026-05-01T00:00:00.000Z");
+    const quote = await prisma!.quote.create({
+      data: {
+        buyerId: "inventory-lock-buyer",
+        sellerId: seller.id,
+        version: 1,
+        environment: "sandbox",
+        merchantId: "test-merchant",
+        subtotalCents: 5000,
+        totalCents: 5000,
+        pickupSlotStart,
+        pickupSlotEnd: new Date(pickupSlotStart.getTime() + 60 * 60 * 1000),
+        termsVersion: "inventory-lock-test-v1",
+        contentHash: "c".repeat(64),
+      },
+    });
+    const hold = await prisma!.inventoryHold.create({
+      data: {
+        quoteId: quote.id,
+        buyerId: "inventory-lock-buyer",
+        expiresAt: new Date("2026-05-02T00:00:00.000Z"),
+        idempotencyKey: randomUUID(),
+        requestHash: "d".repeat(64),
+      },
+    });
+    await prisma!.itemInventory.create({
+      data: { itemId, state: "HELD", holdId: hold.id },
+    });
+
+    const patchResponse = await patchItemRoute(
+      jsonRequest({ expectedVersion: item.version, title: "Locked title" }),
+      { params: Promise.resolve({ id: itemId }) },
+    );
+    expect(patchResponse.status).toBe(409);
+    expect((await responseJson(patchResponse)).code).toBe("ITEM_LOCKED");
+    const publishResponse = await publishItemRoute(
+      jsonRequest({ expectedVersion: item.version }),
+      { params: Promise.resolve({ id: itemId }) },
+    );
+    expect(publishResponse.status).toBe(409);
+    expect((await responseJson(publishResponse)).code).toBe("ITEM_LOCKED");
   });
 
   it("keeps listing revisions immutable, hides exact addresses publicly, and rejects stale writes", async () => {

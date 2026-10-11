@@ -1,5 +1,4 @@
-import { getIdentityMode } from "@/lib/identity-mode";
-import { requireUser } from "@/lib/auth";
+import { getOptionalUser } from "@/lib/auth";
 import { getPrisma } from "@/lib/db";
 import { apiError } from "@/lib/http";
 import { getObjectStore } from "@/lib/object-store";
@@ -12,12 +11,8 @@ export async function GET(
   const { id } = await context.params;
   const prisma = getPrisma();
   if (!prisma) return apiError("DATABASE_UNAVAILABLE", "database unavailable", 503, { retryable: true });
-  let userId: string | null = null;
-  if (getIdentityMode() !== "unavailable") {
-    const auth = await requireUser();
-    if (auth.ok) userId = auth.user.id;
-  }
-  const asset = await getDownloadableAsset(prisma, userId, id);
+  const user = await getOptionalUser();
+  const asset = await getDownloadableAsset(prisma, user?.id ?? null, id);
   if (!asset) return apiError("NOT_FOUND", "asset not found", 404);
   const objectStore = getObjectStore();
   if (!objectStore.available) {
