@@ -43,7 +43,8 @@ test("without AI configured the panel shows the unavailable state and keeps the 
   await expect(page.getByTestId("verdict")).toBeVisible();
   await ask(page, "a desk and chair for studying");
   const unavailable = page.getByTestId("proposal-unavailable");
-  await expect(unavailable).toContainText("AI planning is not configured");
+  // First hit compiles the API route on the dev server, which can take well over 5s in CI.
+  await expect(unavailable).toContainText("AI planning is not configured", { timeout: 30_000 });
   await expect(unavailable).toContainText("AI_API_KEY");
   await expect(page.getByTestId("proposal-apply")).toHaveCount(0);
   await expect(page.getByTestId("footprint-item-sheen-chair")).toBeVisible();
