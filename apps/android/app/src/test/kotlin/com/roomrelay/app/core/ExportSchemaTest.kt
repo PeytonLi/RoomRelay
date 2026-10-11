@@ -45,7 +45,7 @@ class ExportSchemaTest {
     fun `v2 report round trips`() {
         val json = encodeReport(sampleReport())
         val decoded = decodeReport(json)
-        assertEquals(2, decoded.schemaVersion)
+        assertEquals(3, decoded.schemaVersion)
         assertEquals("efficientdet_lite0:int8:1", decoded.detectorModel?.id)
         assertEquals(5L, decoded.inference?.submitted)
     }

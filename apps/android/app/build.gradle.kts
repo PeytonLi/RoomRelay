@@ -73,15 +73,17 @@ val downloadDetectorModel = tasks.register<DownloadDetectorModelTask>("downloadD
 
 android {
     namespace = "com.roomrelay.app"
-    compileSdk = 36
+    compileSdk {
+        version = release(37)
+    }
     buildToolsVersion = "36.0.0"
 
     defaultConfig {
         applicationId = "com.roomrelay.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.2.0-t007"
+        versionCode = 3
+        versionName = "0.3.0-t007"
 
         // Empty default keeps sync fully inert; set -Proomrelay.apiBaseUrl to point at a server.
         buildConfigField(

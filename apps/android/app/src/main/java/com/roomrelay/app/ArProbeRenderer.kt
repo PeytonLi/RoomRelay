@@ -279,7 +279,6 @@ internal class ArProbeRenderer(
                     Plane.Type.HORIZONTAL_UPWARD_FACING,
                     Plane.Type.HORIZONTAL_DOWNWARD_FACING -> horizontal += 1
                     Plane.Type.VERTICAL -> vertical += 1
-                    else -> Unit
                 }
             }
 
@@ -297,7 +296,6 @@ internal class ArProbeRenderer(
                     depthHeight = image.height
                 }
             } catch (_: NotYetAvailableException) {
-                Unit
             } catch (exception: Exception) {
                 depthError = exception.javaClass.simpleName
             }

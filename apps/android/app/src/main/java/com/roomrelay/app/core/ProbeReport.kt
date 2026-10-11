@@ -4,13 +4,14 @@ import kotlinx.serialization.Serializable
 
 @Serializable
 data class ProbeReport(
-    val schemaVersion: Int = 2,
+    val schemaVersion: Int = 3,
     val generatedAtUtc: String,
     val app: AppInfo,
     val device: DeviceInfo,
     val capabilities: Capabilities,
     val cameraConfigs: List<CameraConfigInfo>,
     val measurements: List<MeasurementTrial>,
+    val measurementSummary: List<ConditionSummary> = emptyList(),
     val sessionLog: SessionLog?,
     val notes: String,
     val detectorModel: DetectorModelInfo? = null,
@@ -80,6 +81,8 @@ data class CameraConfigInfo(
 data class MeasurementTrial(
     val index: Int,
     val label: String,
+    val surface: TrialSurface,
+    val nominalDistance: TrialDistance,
     val recordedAtUtc: String,
     val tapeCm: Double,
     val arcoreM: Double,

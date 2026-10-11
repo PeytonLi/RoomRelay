@@ -48,7 +48,10 @@ import com.roomrelay.app.core.capture.DetectionEvidence
 import com.roomrelay.app.core.capture.DimensionMeasurement
 import com.roomrelay.app.core.capture.DimensionSource
 import com.roomrelay.app.core.capture.validateForUpload
+import com.roomrelay.app.core.TrialDistance
+import com.roomrelay.app.core.TrialSurface
 import com.roomrelay.app.core.computeError
+import com.roomrelay.app.core.displayName
 import com.roomrelay.app.core.encodeReport
 import com.roomrelay.app.core.inference.RoomRelayCategory
 import com.roomrelay.app.core.inference.ThermalStatus
@@ -63,6 +66,7 @@ import java.util.UUID
 import java.util.concurrent.Executors
 import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
+import com.roomrelay.app.core.summarizeTrials
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -483,7 +487,12 @@ internal class ProbeController(private val activity: ComponentActivity) {
         publishSessionLog()
     }
 
-    fun saveTrial(tapeText: String, label: String) {
+    fun saveTrial(
+        tapeText: String,
+        label: String,
+        surface: TrialSurface,
+        nominalDistance: TrialDistance,
+    ) {
         val tapeCm = parseTapeCm(tapeText)
         var trialSaved = false
         mutableState.update { state ->
@@ -514,9 +523,16 @@ internal class ProbeController(private val activity: ComponentActivity) {
                         )
                     } else {
                         val index = state.trials.size + 1
+                        val conditionTrialNumber = state.trials.count {
+                            it.surface == surface && it.nominalDistance == nominalDistance
+                        } + 1
                         val trial = MeasurementTrial(
                             index = index,
-                            label = label.trim().ifBlank { "Trial $index" },
+                            label = label.trim().ifBlank {
+                                "${surface.displayName()} · ${nominalDistance.displayName()} · trial $conditionTrialNumber"
+                            },
+                            surface = surface,
+                            nominalDistance = nominalDistance,
                             recordedAtUtc = utcNow(),
                             tapeCm = tapeCm,
                             arcoreM = arcoreM,
@@ -1273,7 +1289,8 @@ internal class ProbeController(private val activity: ComponentActivity) {
     }
 
     private fun buildReport(): ProbeReport {
-        val capability = mutableState.value.capability
+        val state = mutableState.value
+        val capability = state.capability
         return ProbeReport(
             generatedAtUtc = utcNow(),
             app = AppInfo(
@@ -1306,9 +1323,10 @@ internal class ProbeController(private val activity: ComponentActivity) {
                 configureErrorClass = capability.configureErrorClass,
             ),
             cameraConfigs = capability.cameraConfigs,
-            measurements = mutableState.value.trials,
+            measurements = state.trials,
+            measurementSummary = summarizeTrials(state.trials),
             sessionLog = if (sessionLogger.isRunning) null else sessionLogger.result(),
-            notes = mutableState.value.notes,
+            notes = state.notes,
             detectorModel = DetectorModelInfo(
                 id = DETECTOR_MODEL_ID,
                 url = DETECTOR_MODEL_URL,

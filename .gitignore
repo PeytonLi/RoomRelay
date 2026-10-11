@@ -38,3 +38,9 @@ runtime-assets/
 *.png
 *.webp
 # Approved public fixtures may be allowlisted narrowly in a future change.
+**/lib/generated/
+apps/web/AGENTS.md
+**/next-env.d.ts
+**/*.tsbuildinfo
+**/test-results/
+**/playwright-report/
