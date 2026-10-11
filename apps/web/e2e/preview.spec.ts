@@ -47,3 +47,22 @@ test("mobile 390px layout remains usable", async ({ page }) => {
   await expect(page.getByTestId("input-x")).toBeVisible();
   await page.screenshot({ path: `${EVIDENCE}\\mobile-390-default.png`, fullPage: true });
 });
+
+test("selection helper tracks the model bbox (390px)", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await waitReady(page);
+  await page.waitForFunction(() => {
+    const c = (window as unknown as { __rrDebug?: { centers(id: string): { model: { x: number; y: number }; helper: { x: number; y: number } | null } | null } }).__rrDebug?.centers("item-sheen-chair");
+    return !!c && !!c.helper;
+  });
+  // Sample across a few frames: model and helper centers must coincide.
+  for (let i = 0; i < 5; i++) {
+    const c = await page.evaluate(() =>
+      (window as unknown as { __rrDebug: { centers(id: string): { model: { x: number; y: number }; helper: { x: number; y: number } } } }).__rrDebug.centers("item-sheen-chair"),
+    );
+    expect(c.helper).not.toBeNull();
+    expect(Math.abs(c.model.x - c.helper.x)).toBeLessThanOrEqual(3);
+    expect(Math.abs(c.model.y - c.helper.y)).toBeLessThanOrEqual(3);
+    await page.waitForTimeout(120);
+  }
+});

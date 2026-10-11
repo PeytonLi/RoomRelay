@@ -88,7 +88,11 @@ export default function Viewer3D({ room, items, placements, selectedId, onSelect
       if (!p) continue;
       g.matrixAutoUpdate = false;
       g.matrix.fromArray(placementMatrix(p));
-      g.matrixWorldNeedsUpdate = true;
+      // Force-compose the whole subtree now: updateWorldMatrix (used by
+      // BoxHelper/Box3.setFromObject) skips children whose matrixWorldNeedsUpdate
+      // flag is unset, so freshly attached GLB meshes would contribute stale
+      // identity-space bounds until the next render pass.
+      g.updateMatrixWorld(true);
     }
     s.selectionHelper?.update();
   }
@@ -101,7 +105,9 @@ export default function Viewer3D({ room, items, placements, selectedId, onSelect
       s.selectionHelper = null;
     }
     if (s.selectedId && s.itemGroups.has(s.selectedId)) {
-      const helper = new THREE.BoxHelper(s.itemGroups.get(s.selectedId)!, 0x22635a);
+      const g = s.itemGroups.get(s.selectedId)!;
+      g.updateMatrixWorld(true);
+      const helper = new THREE.BoxHelper(g, 0x22635a);
       s.selectionHelper = helper;
       s.scene.add(helper);
     }
@@ -381,6 +387,31 @@ export default function Viewer3D({ room, items, placements, selectedId, onSelect
       s.raf = requestAnimationFrame(loop);
     };
     s.raf = requestAnimationFrame(loop);
+
+    // Test-only hook: projected screen centers of an item's model bbox and the
+    // selection helper, used by e2e to verify they share one transform.
+    (window as unknown as Record<string, unknown>).__rrDebug = {
+      centers: (itemId: string) => {
+        const g = s.itemGroups.get(itemId);
+        if (!g) return null;
+        const modelC = new THREE.Box3().setFromObject(g).getCenter(new THREE.Vector3()).project(camera);
+        const toPx = (v: THREE.Vector3) => ({
+          x: Math.round((v.x * 0.5 + 0.5) * mount.clientWidth),
+          y: Math.round((-v.y * 0.5 + 0.5) * mount.clientHeight),
+        });
+        const out: { model: { x: number; y: number }; helper: { x: number; y: number } | null } = {
+          model: toPx(modelC),
+          helper: null,
+        };
+        if (s.selectionHelper) {
+          const hb = new THREE.Box3().setFromBufferAttribute(
+            s.selectionHelper.geometry.getAttribute("position") as THREE.BufferAttribute,
+          );
+          out.helper = toPx(hb.getCenter(new THREE.Vector3()).project(camera));
+        }
+        return out;
+      },
+    };
 
     return () => {
       cancelAnimationFrame(s.raf);
