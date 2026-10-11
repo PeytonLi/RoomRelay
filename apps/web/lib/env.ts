@@ -60,6 +60,8 @@ const baseSchema = z.object({
   PAYPAL_CLIENT_SECRET: optionalString,
   PAYPAL_WEBHOOK_ID: optionalString,
   PAYPAL_MERCHANT_ID: optionalString,
+  ROOMRELAY_OPERATOR_IDS: optionalString,
+  PAYPAL_SMOKE_APPROVAL_TIMEOUT_SECONDS: z.coerce.number().int().positive().optional().default(600),
   ALLOW_LIVE_PAYMENTS: z
     .enum(["true", "false"])
     .optional()

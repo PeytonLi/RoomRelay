@@ -2,7 +2,7 @@
 
 RoomRelay connects someone moving out with someone moving in: capture actual secondhand furniture, preview it in the incoming person's measured room, approve a usable bundle, and purchase it through PayPal.
 
-**Status: specification only. No application, trained model, deployed service, or working payment integration exists in this repository yet.** The intended first device is a Samsung Galaxy S24. The prototype uses PayPal sandbox and one configured seller.
+**Status: web foundation and a sandbox-only PayPal checkout vertical slice are implemented locally; Android capture, Clerk identity, public webhook delivery, and production commerce remain unavailable or unverified.** The intended first device is a Samsung Galaxy S24. The prototype uses PayPal sandbox and one configured seller.
 
 ## Start here
 
@@ -37,6 +37,7 @@ pnpm db:migrate               # prisma migrate deploy + generate
 pnpm dev                      # http://localhost:3000 (viewer) and /api/health
 pnpm test                     # vitest across packages
 pnpm test:e2e                 # playwright (chromium, software GL flags)
+pnpm paypal:sandbox-smoke     # prints a no-credentials skip unless sandbox credentials are configured
 ```
 
 The Prisma schema and `prisma.config.ts` live in `apps/web/`; generated client

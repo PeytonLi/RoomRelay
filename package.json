@@ -14,7 +14,8 @@
     "typecheck": "pnpm -r typecheck",
     "lint": "node scripts/lint.mjs",
     "db:migrate": "pnpm --filter @roomrelay/web exec prisma migrate deploy && pnpm --filter @roomrelay/web exec prisma generate",
-    "fixtures:fetch": "node scripts/fetch-fixtures.mjs"
+    "fixtures:fetch": "node scripts/fetch-fixtures.mjs",
+    "paypal:sandbox-smoke": "pnpm --filter @roomrelay/web paypal:sandbox-smoke"
   },
   "devDependencies": {}
 }
