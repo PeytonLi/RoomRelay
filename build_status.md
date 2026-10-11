@@ -1,6 +1,6 @@
 # RoomRelay build status
 
-Updated: 2026-10-11. Phase: **M0 in progress: web foundation and synthetic viewer slice in review ([PR #1](https://github.com/PeytonLi/RoomRelay/pull/1)); Android S24 probe in progress; T-006 `IN_REVIEW` ([PR #7](https://github.com/PeytonLi/RoomRelay/pull/7))**. This file is the source of truth for actual progress, not a restatement of the PRD. The documentation is published in the verified public [PeytonLi/RoomRelay repository](https://github.com/PeytonLi/RoomRelay) on `main`; no application is deployed.
+Updated: 2026-10-11. Phase: **M0 in progress: web foundation and synthetic viewer slice in review ([PR #1](https://github.com/PeytonLi/RoomRelay/pull/1)); Android S24 probe in progress; T-006 merged into `main` ([PR #7](https://github.com/PeytonLi/RoomRelay/pull/7)); T-004 implemented locally, PR pending push auth**. This file is the source of truth for actual progress, not a restatement of the PRD. The documentation is published in the verified public [PeytonLi/RoomRelay repository](https://github.com/PeytonLi/RoomRelay) on `main`; no application is deployed.
 
 ## Current evidence
 
@@ -8,7 +8,7 @@ Updated: 2026-10-11. Phase: **M0 in progress: web foundation and synthetic viewe
 | --- | --- | --- |
 | Product baseline and scope | Complete | [docs/PRD.md](docs/PRD.md), FR-01..33 / AC-01..12. |
 | Journeys and UI states | Complete | [docs/USER_JOURNEYS.md](docs/USER_JOURNEYS.md), J-01..12. |
-| Architecture, schema and API | Complete as specification; T-006 implemented on feature branch | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md); T-006 schema, migration and API routes are in `devin/1791692691-t006-payments`, not merged. |
+| Architecture, schema and API | Complete as specification; T-006 merged; T-004 implemented locally | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md); T-004 PR is pending because VM Git push authentication is failing. |
 | Capture, spatial/model/rendering contract | Complete as specification | [docs/CAPTURE_AND_3D.md](docs/CAPTURE_AND_3D.md); no real scan/phone benchmark yet. |
 | Payment/recovery/hand-off contract | T-006 implementation and local tests complete; real sandbox capture/refund evidenced | [docs/PAYMENTS.md](docs/PAYMENTS.md), T-006 sandbox code and contract-mock tests; PayPal webhook delivery remains pending configuration and a real delivery check. |
 | Authentication source check | Complete as research | [docs/AUTH_REFERENCE.md](docs/AUTH_REFERENCE.md); actual project and tokens untested. |
@@ -17,6 +17,7 @@ Updated: 2026-10-11. Phase: **M0 in progress: web foundation and synthetic viewe
 | Documentation integrity | Complete | 12 Markdown files, 42 internal links and the 655-word handoff checked; required IDs, UTF-8, code fences, credential/private-path patterns and Git whitespace checks passed. |
 | Public repository publication | Complete | GitHub reports PUBLIC / main; all 14 intended files are present remotely. Initial specification commit `bf4d759e539d435f0201657da5d876c8c5580738` matched the remote branch. |
 | Web app / database / worker | IN_PROGRESS (PR #1) | Next.js 16 web app, Prisma 7 baseline migration, capability-aware env config, `/api/health`. Verified locally against native PostgreSQL 18 on a Windows VM; not deployed. No worker yet. |
+| T-004 authenticated inventory and geometry | Implemented locally; PR pending push auth | Versioned inventory, room/layout revisions, private uploads/assets, listings and deterministic layout prefilter; final gate evidence is in the T-004 session log below. |
 | Android scanner / real ML inference | Not started | No APK, phone test, model benchmark or inference evidence exists. |
 | 3D assets / reconstruction | IN_PROGRESS (PR #1) | Synthetic measured room fixture plus the public Khronos SheenChair (CC0, `APPROXIMATE_PROXY`, pinned SHA-256) in an interactive Three.js + 2D viewer with live fit checks and local GLB import. No real room or item scan has been imported yet. No reconstruction service exists. |
 | PayPal / identity / cloud accounts | T-006 sandbox REST app and merchant configured; webhook and Clerk not configured | The T-006 sandbox transaction is evidenced below; no public webhook endpoint/subscription/ID or Clerk identity is configured. |
@@ -24,13 +25,21 @@ Updated: 2026-10-11. Phase: **M0 in progress: web foundation and synthetic viewe
 
 ## Next assignment
 
-**Immediate T-006 follow-up:** T-006 is `IN_REVIEW` ([PR #7](https://github.com/PeytonLi/RoomRelay/pull/7)) and the real sandbox capture/full refund are evidenced below. The remaining payment setup is a public HTTPS URL, a subscribed PayPal webhook, and `PAYPAL_WEBHOOK_ID`; real webhook delivery remains untested. Clerk identity is also needed before authenticated API routes can become available. After the payment follow-up, continue **T-002: S24 capture/export feasibility**. An ARCore capability and two-point tape-measurement probe APK is being built in a separate PR. It needs a physical Galaxy S24 run to produce evidence. After that, **import one tape-measured RealityScan/Scaniverse room and one item** through the viewer's local GLB path to complete M1 with real assets.
+**Next assignment:** Restore Git push authentication, push the committed T-004 branch, and complete PR review; then continue **T-005**.
 
 Owner: Devin (sessions https://app.devin.ai/sessions/a547e324f36d44d2ab61b3dd8d5494b9 and https://app.devin.ai/sessions/4a04b75b08da42f4b39555ced7549560 for Android).
 
 ## Session log
 
 ```text
+Date / task / owner: 2026-10-11 / T-004 / Devin
+State and user-visible result: Implemented locally; PR pending because VM Git push authentication is failing (git-manager proxy: "could not read Username"). The port-3000 development server reports identity `keyless-dev`.
+Files and commit: Code HEAD before this documentation commit: `e73d6bd`. Implementation commits: `7cfde88`, `bd21880`, `03a58c8`, `206b8f1`, `e73d6bd`. Added the Clerk `requireUser()` / `getOptionalUser()` seam (`apps/web/lib/auth.ts`); identity modes `available`, `keyless-dev`, and `unavailable` (`apps/web/lib/identity-mode.ts`, `/api/health`); guarded `clerkMiddleware` in `apps/web/proxy.ts`; User, RoomRevision, ListingVersion, LayoutRevision, and UploadManifest schema plus immutable-update triggers in migration `20261011130000_t004_auth_inventory`; `/api/v1` uploads, assets, items, listings, rooms, candidates and layouts; local filesystem object storage; deterministic prefilter using `validateLayout`; `/sell` and `/rooms` pages; and T-006 integration (`getPrincipal` delegates to `requireUser`, quote snapshots use the published ListingVersion, and non-AVAILABLE item inventory locks seller edits).
+Checks actually run and results: `pnpm install --frozen-lockfile` passed; `pnpm -r typecheck` passed; `pnpm -r test` passed (18 files, 134 tests); `pnpm --filter @roomrelay/web exec next build` passed; `CI=true pnpm test:e2e` passed (11 tests). Evidence: `C:\Users\Administrator\evidence\t004-typecheck.txt`, `C:\Users\Administrator\evidence\t004-vitest.txt`, `C:\Users\Administrator\evidence\t004-build.txt`, and `C:\Users\Administrator\evidence\t004-e2e.txt`.
+Requirements satisfied / remaining: TEST-08 now exercises patch/publish versioning and published quote snapshots; its stale quote, expired hold, and no-provider-capture assertions remain, and TEST-09/10 assertions were not weakened. Remaining: Peyton must claim or create the Clerk app. To claim the current unclaimed dev instance, run `npx -y clerk@latest auth login` in `apps/web` (per Clerk CLI docs; the claim has not been verified), then delete `apps/web/.clerk/` so health reports `available`; alternatively create a dev application in the Clerk dashboard and set `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` and `CLERK_SECRET_KEY`. Enable Native API, Email verification code sign-in, and Google social connection in Clerk. Production keys also need `ROOMRELAY_WEB_BASE_URL` for `authorizedParties`.
+Blocker or risk (if any): Automatic SDK keyless was removed in `@clerk/nextjs` 7.8.0; `keyless-dev` works only with CLI-created keys under `next dev` and no CI vars. The S3 adapter is not implemented (S3 capability reports unavailable); local FS is available. `Item.status` and `ItemInventory.state` are parallel state fields; consolidation is follow-up work. Next build emits dynamic filesystem tracing warnings in `object-store.ts`.
+Next task: Push the T-004 branch and complete PR review when Git authentication is restored; then continue T-005.
+
 Date / task / owner: 2026-10-11 / T-006 TEST-08/09/10 coverage follow-up / Devin
 State and user-visible result: `IN_REVIEW` ([PR #7](https://github.com/PeytonLi/RoomRelay/pull/7)). Added 19 DB cases for TEST-08/09/10 and a strict checkout-body schema unit test; real sandbox capture/refund evidence is recorded in the preceding T-006 entry.
 Files and commit: Code/test commit `ca4cf76`; `apps/web/lib/payments/checkout.ts`, `apps/web/lib/payments/reconcile.ts`, `apps/web/test/db/payments.test.ts`, `apps/web/test/support/paypal-contract-mock.ts`, `apps/web/lib/payments/http-schemas.test.ts`, and `apps/web/vitest.config.ts`. This status update records the verified outcomes.
@@ -72,7 +81,7 @@ Next task: persist proposals once the schema owners land the layout tables; wire
 | --- | --- | --- |
 | M0 foundation/feasibility | IN_PROGRESS | Toolchain/config/known-length device and scan-export results. |
 | M1 actual item in room | IN_PROGRESS (synthetic only) | Independent permitted asset, scale/orientation and interactive preview. |
-| M2 data/AI planning | IN_PROGRESS (T-005 in review) | Real constrained DeepSeek call validated against synthetic fixtures; auth/private inventory/layout/quotes remain. |
+| M2 data/AI planning | IN_PROGRESS (T-004 local/PR pending; T-005 in review) | Real constrained DeepSeek call validated against synthetic fixtures; T-004 auth, private inventory, layouts and quote integration are implemented locally. |
 | M3 sandbox commerce | IN_PROGRESS | T-006 code and local race/recovery tests pass; real sandbox capture/full-refund is evidenced; PayPal webhook delivery remains pending configuration and a real delivery check. |
 | M4 live Android capture | TODO | Actual S24 live inference, guided capture and API sync. |
 | M5 complete prototype | TODO | AC-01..12 with evidence and full demo. |
