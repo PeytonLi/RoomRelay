@@ -1,0 +1,29 @@
+import { z } from "zod";
+import { requireUser } from "@/lib/auth";
+import { getPrisma } from "@/lib/db";
+import { apiError } from "@/lib/http";
+import { relistItem } from "@/lib/services/orders";
+import { readJson, zodFieldErrors } from "@/lib/validation";
+
+const bodySchema = z.object({
+  possessionConfirmed: z.literal(true),
+}).strict();
+
+export async function POST(
+  request: Request,
+  context: { params: Promise<{ id: string }> },
+): Promise<Response> {
+  const auth = await requireUser();
+  if (!auth.ok) return auth.response;
+  const body = await readJson(request);
+  if (!body.ok) return body.response;
+  const parsed = bodySchema.safeParse(body.value);
+  if (!parsed.success) return apiError("VALIDATION_ERROR", "relist requires possessionConfirmed: true", 422, { fieldErrors: zodFieldErrors(parsed.error) });
+  const { id } = await context.params;
+  const prisma = getPrisma();
+  if (!prisma) return apiError("DATABASE_UNAVAILABLE", "database unavailable", 503, { retryable: true });
+  const result = await relistItem(prisma, auth.user.id, id);
+  if (result.kind === "not-found") return apiError("NOT_FOUND", "item not found", 404);
+  if (result.kind === "not-relistable") return apiError("NOT_RELISTABLE", "item is not relistable", 409);
+  return Response.json({ itemId: result.itemId, version: result.version });
+}

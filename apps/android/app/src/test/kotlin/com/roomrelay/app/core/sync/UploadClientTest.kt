@@ -339,7 +339,12 @@ class UploadClientTest {
         client().runPending()
         assertEquals(UploadStatus.RETRY_SCHEDULED, store.load(job.jobId)?.status)
         assertTrue(store.load(job.jobId)!!.nextAttemptAtMs!! > nowMs)
-        // Non-forced run leaves it alone.
+        // Non-forced run leaves it alone. Drain the request queue first so a
+        // disconnect response still being counted server-side cannot leak into
+        // the comparison.
+        while (server.takeRequest(2, TimeUnit.SECONDS) != null) {
+            // drain in-flight requests
+        }
         val before = server.requestCount
         client().runPending()
         assertEquals(before, server.requestCount)

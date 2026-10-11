@@ -143,6 +143,16 @@ Blocker or risk (if any): No schema or migration edits were made. Context7's mon
 Next task: Add the auth-backed HTTP operator retry/audit route and GET /jobs/:id when the required auth and AuditEvent model are available, then wire this queue into T-004.
 ```
 
+```text
+Date / task / owner: 2026-10-11 / T-008 lane A order, handoff and support API / Devin
+State and user-visible result: IN_PROGRESS (pushed for review). GET /api/v1/orders/[id] returns a participant-scoped receipt (role, payment totals, refund, quote snapshot, buyer-only placementGuide with numbered items and WARN/UNKNOWN assumptions, handoff + protected pickupLocations after payment, cases, notes, nextAction). POST /pickup-ack records each party's acknowledgment under a row lock (idempotent; both → COMPLETED; 409 ORDER_NOT_PAID / CASE_OPEN). POST /issues opens a support case (OPEN, handoff → ISSUE_OPEN, affectedItemIds must be a subset of quote lines). POST /issues/[caseId]/resolve is seller/operator-only and restores the derived handoff state. POST /notes appends participant notes. POST /api/v1/items/[id]/relist (possessionConfirmed) requires sold inventory + a REFUNDED order, copies the published ListingVersion into a new current version, sets Item.status=DRAFT and ItemInventory state=AVAILABLE; the item is not public until publish.
+Files and commit: migration 20261011140000_t008_handoff_support (Handoff, SupportCase, OrderNote + immutability triggers), apps/web/prisma/schema.prisma, apps/web/lib/services/orders.ts (new), apps/web/app/api/v1/orders/[id]{/pickup-ack,/issues,/issues/[caseId]/resolve,/notes,/route}.ts, apps/web/app/api/v1/items/[id]/relist/route.ts, apps/web/test/db/orders.test.ts, apps/web/lib/services/inventory.ts (sold inventory excluded from public listings), eslint.config.mjs (+.next-e2e ignore), docs/ARCHITECTURE.md; branch devin/1791701945-t008-orders-handoff.
+Checks actually run and results: pnpm install --frozen-lockfile pass; prisma migrate deploy on fresh scratch DB roomrelay_t008_check (5 migrations incl. T-008) pass; pnpm lint 0 errors/0 warnings; pnpm -r typecheck pass; pnpm --filter @roomrelay/web test 83/83 (8 new orders tests covering non-participant 404s, pre/post-PAID handoff + privacy, sequential/concurrent acks → COMPLETED, issue blocks ack → seller resolve restores derived state, PaymentOrder immutability across ack/issue/note, refund → stays SOLD → relist → DRAFT → republish, INVALID_ITEMS 400, ordered notes + immutable-order-notes trigger); next build pass with all routes emitted.
+Requirements satisfied / remaining: Contract implemented; two deviations from the letter of the brief — (1) relist gates on ItemInventory.state=SOLD because the payment flow never sets Item.status=SOLD (sold marker is on inventory), (2) public listings now exclude sold inventory so the "stays SOLD and absent from listings" behavior holds. Handoff creation uses INSERT ... ON CONFLICT DO NOTHING instead of an upsert+P2002 catch because a failed upsert aborts the Postgres transaction. Remaining: T-008 lane B UI.
+Blocker or risk (if any): None.
+Next task: T-008 lane B order/detail UI against the contract above.
+```
+
 ## Milestone ledger
 
 | Milestone | State | Exit evidence |

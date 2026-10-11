@@ -129,7 +129,7 @@ export class PgJobQueue {
       `INSERT INTO jobs
         (type, stage, subject_type, subject_id, subject_version, idempotency_key,
          max_attempts, run_after, input_ref)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, COALESCE($8, now()), $9::jsonb)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, COALESCE($8, date_trunc('milliseconds', now())), $9::jsonb)
        ON CONFLICT (idempotency_key) DO NOTHING
        RETURNING *`,
       [
@@ -299,7 +299,7 @@ export class PgJobQueue {
         const delay = Math.min(this.retry.maxDelayMs, this.retry.baseDelayMs * 2 ** (attempts - 1));
         await client.query(
           `UPDATE jobs
-           SET status = 'QUEUED', run_after = now() + ($3 * interval '1 millisecond'),
+           SET status = 'QUEUED', run_after = date_trunc('milliseconds', now() + ($3 * interval '1 millisecond')),
                reason = $4, lease_owner = NULL, lease_token = NULL, lease_expires_at = NULL,
                updated_at = now()
            WHERE id = $1 AND lease_token = $2`,
@@ -353,7 +353,7 @@ export class PgJobQueue {
 
       await client.query(
         `UPDATE jobs
-         SET status = 'QUEUED', attempts = 0, run_after = now(),
+         SET status = 'QUEUED', attempts = 0, run_after = date_trunc('milliseconds', now()),
              reason = $2, cancel_requested_at = NULL, finished_at = NULL,
              output_ref = NULL, lease_owner = NULL, lease_token = NULL,
              lease_expires_at = NULL, updated_at = now()

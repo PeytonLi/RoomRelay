@@ -118,6 +118,7 @@ All JSON APIs use `/api/v1`, validate with one shared schema source, and return 
 | POST `/items`; PATCH `/items/:id` | seller-reviewed fields and version | Editing held/sold purchase facts blocked. |
 | POST `/items/:id/publish` | reviewed version | Dimensions/consent/content/merchant status checked. |
 | POST `/items/:id/withdraw` | expectedVersion | Available inventory only. |
+| POST `/items/:id/relist` | possession confirmed | Seller only; requires sold inventory plus a fully refunded order; creates a new current draft version and frees the inventory, but stays private until publish. |
 | GET `/listings` and `/listings/:id` | coarse filters/cursor | Public selected sanitized fields/media only; no room/address. |
 | POST/PATCH `/rooms` or `/rooms/:id` | geometry and evidence refs/version | Validate polygon/transforms and invalidate dependent quotes. |
 | PUT `/rooms/:id/requirements` | validated budget/categories/date/area | New requirements revision. |
@@ -134,8 +135,9 @@ All JSON APIs use `/api/v1`, validate with one shared schema source, and return 
 | GET `/orders/:id` | persistent status/receipt/next action | Participants only; provider secrets excluded. |
 | POST `/orders/:id/refund` | reason, expected state, request key | Seller/operator, full actual capture in P0. |
 | POST `/orders/:id/pickup-ack` | party acknowledgment/revision | Handoff state only; cannot alter payment. |
-| POST `/orders/:id/issues` | affected IDs/reason/private evidence | Participant case with minimal disclosure. |
-| POST `/orders/:id/coordination` | Short private order-thread note | Participant only, server timestamps; no external message delivery in P0. |
+| POST `/orders/:id/issues` | affected IDs/reason/private evidence | Participant case with minimal disclosure; sets handoff to `ISSUE_OPEN`. |
+| POST `/orders/:id/issues/:caseId/resolve` | resolution note | Seller or configured operator; restores handoff state derived from acknowledgments when no cases remain open. |
+| POST `/orders/:id/notes` | Short private order-thread note | Participant only, server timestamps; immutable once written. |
 | PATCH `/orders/:id/pickup` | Proposed slot/private location revision | Participant approval required for changed agreed terms; never changes captured total. |
 | POST `/operator/jobs/:id/retry` | Reason and safe retry request | Operator only, audited, version/cost/cancellation checks; cannot forge financial state. |
 | POST `/operator/orders/:id/reconcile` | Provider-status retrieval request | Operator only; same authoritative transition rules as the worker. |

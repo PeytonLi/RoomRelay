@@ -180,7 +180,7 @@ export async function evaluateLayoutForRequest(prisma: PrismaClient, user: User,
 
 export async function candidateListingFacts(prisma: PrismaClient) {
   const items = await prisma.item.findMany({
-    where: { status: "ACTIVE", publishedVersion: { not: null } },
+    where: { status: "ACTIVE", publishedVersion: { not: null }, NOT: { inventory: { is: { state: { not: "AVAILABLE" } } } } },
     select: {
       id: true,
       sellerId: true,
