@@ -8,6 +8,7 @@ import { requestQuote, sellerApproveQuote, buyerApproveQuote } from "../../lib/p
 import { refundFull } from "../../lib/payments/refunds";
 import { HttpPayPalClient } from "../../lib/payments/paypal/client";
 import { publishItem, listPublishedListings } from "../../lib/services/inventory";
+import { candidateListingFacts } from "../../lib/services/layouts";
 import { setTestIdentity } from "../../lib/test-identity";
 import { GET as getOrder } from "../../app/api/v1/orders/[id]/route";
 import { POST as pickupAck } from "../../app/api/v1/orders/[id]/pickup-ack/route";
@@ -257,6 +258,23 @@ dbDescribe("T-008 orders, handoff and support", () => {
     expect(patched.kind).toBe("ok");
     expect((await prisma.item.findUniqueOrThrow({ where: { id: item.id } })).status).toBe("ACTIVE");
     expect((await listPublishedListings(prisma)).some((listing) => listing.id === item.id)).toBe(true);
+  });
+
+  it("sold inventory is excluded from layout candidates until relisted and republished", async () => {
+    const { item } = await paidOrder("Candidates desk");
+    expect((await candidateListingFacts(prisma)).some((fact) => fact.itemId === item.id)).toBe(false);
+
+    await refundFull({
+      orderId: (await prisma.paymentOrder.findFirstOrThrow({ where: { quote: { lines: { some: { itemId: item.id } } } } })).id,
+      actorId: seller.id, actorRole: "seller", requestKey: "rk-candidates", reason: "returned",
+    }, deps);
+    setTestIdentity("t008-seller");
+    await relist(req({ possessionConfirmed: true }, item.id), params(item.id));
+    const relisted = await prisma.item.findUniqueOrThrow({ where: { id: item.id } });
+    expect((await candidateListingFacts(prisma)).some((fact) => fact.itemId === item.id)).toBe(false);
+    const published = await publishItem(prisma, seller, item.id, relisted.version);
+    expect(published.kind).toBe("ok");
+    expect((await candidateListingFacts(prisma)).some((fact) => fact.itemId === item.id)).toBe(true);
   });
 
   it("(g) out-of-order affectedItemIds → 400 INVALID_ITEMS", async () => {

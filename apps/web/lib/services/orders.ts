@@ -6,7 +6,8 @@ type OrderWithQuote = PaymentOrder & { quote: Quote & { lines: QuoteLine[] } };
 
 /**
  * Lazily create the handoff row for a paid order (J-09/P-09). Only call when
- * order.paidAt != null. Upsert on the unique orderId; a P2002 race re-reads.
+ * order.paidAt != null. INSERT ... ON CONFLICT DO NOTHING so a concurrent
+ * creator does not abort the surrounding transaction.
  */
 export async function getOrCreateHandoff(tx: Tx, order: OrderWithQuote): Promise<Handoff> {
   // INSERT ON CONFLICT keeps a concurrent-creator race from aborting the tx.
