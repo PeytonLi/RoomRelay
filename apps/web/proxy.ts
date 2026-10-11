@@ -1,0 +1,20 @@
+import { clerkMiddleware } from "@clerk/nextjs/server";
+import { NextResponse } from "next/server";
+
+const hasClerkKeys = Boolean(
+  process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY?.trim() && process.env.CLERK_SECRET_KEY?.trim(),
+);
+
+const webBaseUrl = process.env.ROOMRELAY_WEB_BASE_URL?.trim();
+const clerkMiddlewareOptions = webBaseUrl ? { authorizedParties: [webBaseUrl] } : {};
+
+export default hasClerkKeys
+  ? clerkMiddleware(clerkMiddlewareOptions)
+  : () => NextResponse.next();
+
+export const config = {
+  matcher: [
+    "/((?!_next|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)",
+    "/(api|trpc)(.*)",
+  ],
+};

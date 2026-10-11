@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { getIdentityMode } from "./identity-mode";
 
 /**
  * Capability-based server configuration (ARCHITECTURE.md A-07).
@@ -36,7 +37,7 @@ const groups = {
 export type CapabilityName = keyof typeof groups;
 
 export interface CapabilityState {
-  status: "available" | "unavailable";
+  status: "available" | "keyless-dev" | "unavailable";
   missing: string[];
   /** Present only on the paypal capability: the effective PayPal mode
    * from parsed env ("sandbox" unless live is explicitly enabled). */
@@ -47,9 +48,13 @@ const baseSchema = z.object({
   DATABASE_URL: optionalString,
   ROOMRELAY_WEB_BASE_URL: optionalString,
   ROOMRELAY_API_BASE_URL: optionalString,
+  ROOMRELAY_TEST_IDENTITY: optionalString,
+  TEST_DATABASE_URL: optionalString,
   NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: optionalString,
   CLERK_SECRET_KEY: optionalString,
   CLERK_JWT_KEY: optionalString,
+  NEXT_PUBLIC_CLERK_KEYLESS_DISABLED: optionalString,
+  OBJECT_STORE_LOCAL_DIR: optionalString,
   OBJECT_STORE_ENDPOINT: optionalString,
   OBJECT_STORE_REGION: optionalString,
   OBJECT_STORE_BUCKET: optionalString,
@@ -97,6 +102,9 @@ export function loadConfig(source: Record<string, string | undefined> = process.
       "PAYPAL_ENVIRONMENT=live requires ALLOW_LIVE_PAYMENTS=true; live payments are gated (A-07).",
     );
   }
+  if (source.ROOMRELAY_TEST_IDENTITY === "enabled" && source.NODE_ENV === "production") {
+    throw new ConfigError("ROOMRELAY_TEST_IDENTITY=enabled is not allowed in production.");
+  }
 
   const capabilities = {} as Record<CapabilityName, CapabilityState>;
   for (const [name, vars] of Object.entries(groups) as [CapabilityName, readonly string[]][]) {
@@ -104,7 +112,11 @@ export function loadConfig(source: Record<string, string | undefined> = process.
       const raw = source[v];
       return raw === undefined || raw.trim() === "";
     });
-    capabilities[name] = missing.length === 0 ? { status: "available", missing: [] } : { status: "unavailable", missing };
+    if (name === "identity") {
+      capabilities.identity = { status: getIdentityMode(source), missing };
+    } else {
+      capabilities[name] = missing.length === 0 ? { status: "available", missing: [] } : { status: "unavailable", missing };
+    }
   }
   capabilities.paypal.environment = env.PAYPAL_ENVIRONMENT;
 

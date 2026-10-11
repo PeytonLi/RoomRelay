@@ -13,6 +13,7 @@
     "postinstall": "prisma generate"
   },
   "dependencies": {
+    "@clerk/nextjs": "7.9.14",
     "@prisma/adapter-pg": "7.10.0",
     "@prisma/client": "7.10.0",
     "@roomrelay/assets": "workspace:*",
