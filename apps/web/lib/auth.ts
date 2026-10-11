@@ -18,8 +18,9 @@ async function findOrCreateUser(authSubject: string): Promise<RequireUserResult>
       update: {},
       create: { authSubject },
     });
-  } catch {
+  } catch (error) {
     // Concurrent first requests for the same subject race the upsert's insert.
+    if ((error as { code?: unknown }).code !== "P2002") throw error;
     user = await prisma.user.findUniqueOrThrow({ where: { authSubject } });
   }
   if (user.disabledAt) {
