@@ -58,6 +58,16 @@ Next task: T-002 S24 run of the probe APK; then a real scan import.
 ```
 
 ```text
+Date / task / owner: 2026-10-11 / T-005 follow-up: proposal UI in the viewer / Devin (session https://app.devin.ai/sessions/fd9362af0cea4b77a3a133144d9a058a)
+State and user-visible result: IN_PROGRESS (in review). The preview page has an "AI layout proposal" panel: free-text preferences + optional USD budget call POST /api/planning/proposal and show the unavailable state (with missing env names), a clarification question, the manual-placement fallback (rejection/spatial reasons), or a proposal (seller, inventory prices, total, server fit verdict, model rationale labelled unverified, unapplied constraint changes). "Apply to room" replaces the current items with box proxies built from confirmed inventory dims (APPROXIMATE_PROXY, no 3D model), and the client re-runs validateLayout on them, so the live verdict, 2D plan and 3D view stay authoritative. Follow-up prompts send the applied layout as `currentLayout` for edits. No route, planning package or schema change.
+Files and commit: apps/web/app/proposal-panel.tsx (new), apps/web/app/preview-shell.tsx, apps/web/app/viewer3d.tsx (boxProxy rendering; load errors scoped to the item that failed), apps/web/lib/viewer-types.ts (`boxProxy`), apps/web/app/globals.css, apps/web/e2e/proposal.spec.ts (new), apps/web/playwright.config.ts (AI env blanked so e2e is deterministic); branch devin/1791697445-t005-proposal-ui.
+Checks actually run and results: pnpm -r typecheck pass (6 projects). pnpm -r test: spatial 24, assets 50, planning 32, jobs 4 (+10 DB skipped), asset-worker 8 (+2 skipped), web 19 with ROOMRELAY_SKIP_DB_TESTS=1 (no local PostgreSQL on this VM; CI runs the DB project). next build pass. Playwright 13/13 (4 new: unavailable state keeps the layout; mocked proposal apply -> box proxies, local fit PASS, edit sends currentLayout, a bed-overlapping proposal still FAILs locally; clarification/fallback have no apply; 390px). Live check against `next start` with model `deepseek-flash`: "a desk and a chair for studying" ($150 budget) returned a $105.00 seller-a desk+chair proposal; applied verdict "Fits provided measurements"; the edit "rotate the desk 90 degrees and put it against the left wall" returned a rotated desk, applied verdict "Fits provided measurements".
+Requirements satisfied / remaining: closes the T-005 "wire the proposal into the viewer" gap for synthetic data. Remaining: real inventory/room/assets from the DB, persisting proposals, quote/checkout hand-off from an applied proposal, camera framing on applied items.
+Blocker or risk (if any): proposal items have no GLB, so the 3D view shows translucent boxes only. Inventory is synthetic.
+Next task: unchanged (PayPal webhook configuration, Clerk, then T-002).
+```
+
+```text
 Date / task / owner: 2026-10-11 / T-005 + TEST-04 / Devin (session https://app.devin.ai/sessions/fd9362af0cea4b77a3a133144d9a058a)
 State and user-visible result: IN_PROGRESS (in review). POST /api/planning/proposal returns a real DeepSeek proposal for the synthetic fixture room + synthetic inventory: server-validated item IDs/placements/rationale, a clarification question, or a manual-placement fallback. Returns 503 `unavailable` (never a canned recommendation) when the AI capability is missing. Proposals live in the response only (no Prisma/schema change).
 Files and commit: packages/planning (schema, provider, prompt, validate, propose, tests, eval/), apps/web/lib/planning.ts, apps/web/app/api/planning/proposal/route.ts, apps/web/fixtures/inventory.synthetic.json; branch devin/1791692441-t005-ai-proposal.
@@ -83,7 +93,7 @@ Next task: after T-004's Asset model lands, implement the Asset-backed guard and
 | --- | --- | --- |
 | M0 foundation/feasibility | IN_PROGRESS | Toolchain/config/known-length device and scan-export results. |
 | M1 actual item in room | IN_PROGRESS (synthetic only) | Independent permitted asset, scale/orientation and interactive preview. |
-| M2 data/AI planning | IN_PROGRESS (T-005 in review) | Real constrained DeepSeek call validated against synthetic fixtures; auth/private inventory/layout/quotes remain. |
+| M2 data/AI planning | IN_PROGRESS | Real constrained DeepSeek call validated against synthetic fixtures and shown/applied in the viewer; auth/private inventory/layout/quotes remain. |
 | M3 sandbox commerce | IN_PROGRESS | T-006 code and local race/recovery tests pass; real sandbox capture/full-refund is evidenced; PayPal webhook delivery remains pending configuration and a real delivery check. |
 | M4 live Android capture | TODO | Actual S24 live inference, guided capture and API sync. |
 | M5 complete prototype | TODO | AC-01..12 with evidence and full demo. |

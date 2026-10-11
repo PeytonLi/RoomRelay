@@ -6,6 +6,7 @@ import { validateLayout, validateRoom, type Placement, type PlacedItem, type Roo
 import type { FrameStats, ViewerItem } from "@/lib/viewer-types";
 import Plan2D from "./plan2d";
 import { FitPanel, ImportPanel, ItemPanel, PlacementControls } from "./panels";
+import { ProposalPanel, proposalToViewer, type CurrentLayoutEntry } from "./proposal-panel";
 import roomJson from "../fixtures/room.synthetic.json";
 import itemJson from "../fixtures/item.sheen-chair.json";
 
@@ -55,6 +56,7 @@ export default function PreviewShell() {
     [fixtureItem.id]: DEFAULT_PLACEMENT,
   });
   const [selectedId, setSelectedId] = useState<string | null>(fixtureItem.id);
+  const [resetPlacements, setResetPlacements] = useState<Record<string, Placement>>({});
   const [webgl, setWebgl] = useState<boolean | null>(null);
   const [frameStats, setFrameStats] = useState<FrameStats>({ medianMs: null });
 
@@ -104,6 +106,26 @@ export default function PreviewShell() {
     setSelectedId(item.id);
   }, []);
 
+  const applyProposal = useCallback((proposal: Parameters<typeof proposalToViewer>[0]) => {
+    const next = proposalToViewer(proposal);
+    setItems(next.items);
+    setPlacements(next.placements);
+    setResetPlacements(next.placements);
+    setSelectedId(next.items[0]?.id ?? null);
+  }, []);
+
+  const currentLayout: CurrentLayoutEntry[] = useMemo(
+    () =>
+      items
+        .filter((it) => it.boxProxy && placements[it.id])
+        .map((it) => {
+          const p = placements[it.id]!;
+          const deg = (((p.yawRad * 180) / Math.PI) % 360 + 360) % 360;
+          return { itemId: it.id, xM: Number(p.xM.toFixed(3)), zM: Number(p.zM.toFixed(3)), yawDeg: Number(deg.toFixed(1)) };
+        }),
+    [items, placements],
+  );
+
   return (
     <div className="workspace">
       <header className="topbar">
@@ -143,7 +165,7 @@ export default function PreviewShell() {
               item={selected}
               placement={placements[selected.id]!}
               onChange={(p) => setPlacement(selected.id, p)}
-              onReset={() => setPlacement(selected.id, DEFAULT_PLACEMENT)}
+              onReset={() => setPlacement(selected.id, resetPlacements[selected.id] ?? DEFAULT_PLACEMENT)}
             />
           </>
         ) : (
@@ -157,6 +179,7 @@ export default function PreviewShell() {
             {frameStats.medianMs !== null ? ` · median frame ${frameStats.medianMs.toFixed(1)} ms (last 120)` : ""}
           </div>
         </div>
+        <ProposalPanel currentLayout={currentLayout} onApply={applyProposal} />
         <ImportPanel onAccept={addImportedItem} />
       </aside>
     </div>
