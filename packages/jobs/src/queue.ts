@@ -33,6 +33,25 @@ export function jobIdempotencyKey(type: string, subject: JobSubject, stage: stri
 
 const DEFAULT_RETRY: RetryPolicy = { baseDelayMs: 5_000, maxDelayMs: 300_000 };
 
+export const FINANCIAL_JOB_TYPE_PREFIXES = ["payment.", "refund.", "payout."] as const;
+
+export type RetryJobOutcome =
+  | "REQUEUED"
+  | "NOT_FOUND"
+  | "NOT_RETRYABLE_STATUS"
+  | "FINANCIAL_TYPE_REFUSED"
+  | "SUBJECT_NOT_CURRENT";
+
+export interface JobQueueStats {
+  counts: Record<JobStatus, number>;
+  oldestQueuedAgeSeconds: number | null;
+  expiredLeases: number;
+}
+
+export function isFinancialJobType(type: string): boolean {
+  return FINANCIAL_JOB_TYPE_PREFIXES.some((prefix) => type.startsWith(prefix));
+}
+
 function mapJob(row: Record<string, unknown>): JobRow {
   return {
     id: String(row.id),
@@ -314,6 +333,74 @@ export class PgJobQueue {
       }
       return status;
     });
+  }
+
+  async retryJob(
+    jobId: string,
+    opts: { reason: string; guard: SubjectVersionGuard },
+  ): Promise<RetryJobOutcome> {
+    const reason = opts.reason.trim().slice(0, 500);
+    if (!reason) throw new TypeError("retry reason must not be empty");
+
+    return inTransaction(this.pool, async (client) => {
+      const selected = await client.query("SELECT * FROM jobs WHERE id = $1 FOR UPDATE", [jobId]);
+      const row = selected.rows[0];
+      if (!row) return "NOT_FOUND";
+      if (isFinancialJobType(String(row.type))) return "FINANCIAL_TYPE_REFUSED";
+      if (row.status !== "FAILED" && row.status !== "CANCELLED") return "NOT_RETRYABLE_STATUS";
+      const job = mapJob(row);
+      if (await opts.guard.check(job.subject, client) !== "CURRENT") return "SUBJECT_NOT_CURRENT";
+
+      await client.query(
+        `UPDATE jobs
+         SET status = 'QUEUED', attempts = 0, run_after = now(),
+             reason = $2, cancel_requested_at = NULL, finished_at = NULL,
+             output_ref = NULL, lease_owner = NULL, lease_token = NULL,
+             lease_expires_at = NULL, updated_at = now()
+         WHERE id = $1`,
+        [jobId, `OPERATOR_RETRY: ${reason}`],
+      );
+      return "REQUEUED";
+    });
+  }
+
+  async stats(): Promise<JobQueueStats> {
+    const result = await this.pool.query<{
+      queued_count: number;
+      running_count: number;
+      succeeded_count: number;
+      failed_count: number;
+      cancelled_count: number;
+      superseded_count: number;
+      oldest_queued_age_seconds: number | null;
+      expired_leases: number;
+    }>(
+      `SELECT
+         COUNT(*) FILTER (WHERE status = 'QUEUED')::int AS queued_count,
+         COUNT(*) FILTER (WHERE status = 'RUNNING')::int AS running_count,
+         COUNT(*) FILTER (WHERE status = 'SUCCEEDED')::int AS succeeded_count,
+         COUNT(*) FILTER (WHERE status = 'FAILED')::int AS failed_count,
+         COUNT(*) FILTER (WHERE status = 'CANCELLED')::int AS cancelled_count,
+         COUNT(*) FILTER (WHERE status = 'SUPERSEDED')::int AS superseded_count,
+         FLOOR(EXTRACT(EPOCH FROM (
+           now() - MIN(run_after) FILTER (WHERE status = 'QUEUED' AND run_after <= now())
+         )))::int AS oldest_queued_age_seconds,
+         COUNT(*) FILTER (WHERE status = 'RUNNING' AND lease_expires_at < now())::int AS expired_leases
+       FROM jobs`,
+    );
+    const row = result.rows[0]!;
+    return {
+      counts: {
+        QUEUED: row.queued_count,
+        RUNNING: row.running_count,
+        SUCCEEDED: row.succeeded_count,
+        FAILED: row.failed_count,
+        CANCELLED: row.cancelled_count,
+        SUPERSEDED: row.superseded_count,
+      },
+      oldestQueuedAgeSeconds: row.oldest_queued_age_seconds,
+      expiredLeases: row.expired_leases,
+    };
   }
 
   async get(jobId: string): Promise<JobRow | null> {
