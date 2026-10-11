@@ -9,6 +9,7 @@ import { refundFull, reconcileRefund } from "../lib/payments/refunds";
 import { reconcileOrder } from "../lib/payments/reconcile";
 import { getPayPalApiBaseUrl, PayPalHttpError } from "../lib/payments/paypal/client";
 import type { PaymentDeps } from "../lib/payments/deps";
+import { seedPublishedPaymentItem } from "../test/support/seed-payment-item";
 
 const sleep = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 class ApprovalTimeoutError extends Error {}
@@ -32,19 +33,13 @@ function printPayPalFailure(error: unknown): void {
 }
 
 async function seedCheckout(deps: PaymentDeps): Promise<string> {
-  const sellerId = "sandbox-smoke-seller";
+  const { seller, item } = await seedPublishedPaymentItem(
+    deps.prisma,
+    "sandbox-smoke-seller",
+    "RoomRelay sandbox smoke item",
+  );
+  const sellerId = seller.id;
   const buyerId = "sandbox-smoke-buyer";
-  const item = await deps.prisma.item.create({
-    data: {
-      sellerId,
-      title: "RoomRelay sandbox smoke item",
-      widthM: "0.5000",
-      depthM: "0.5000",
-      heightM: "0.5000",
-      provenance: "ILLUSTRATIVE_GENERATED",
-      status: "ACTIVE",
-    },
-  });
   const start = new Date(Date.now() + 2 * 60 * 60 * 1000);
   const end = new Date(start.getTime() + 60 * 60 * 1000);
   const quote = await requestQuote({

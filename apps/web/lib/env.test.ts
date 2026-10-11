@@ -1,5 +1,26 @@
-import { describe, expect, it } from "vitest";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
 import { ConfigError, loadConfig } from "./env";
+
+const temporaryDirectories: string[] = [];
+
+function temporaryCwd(): string {
+  const cwd = mkdtempSync(path.join(os.tmpdir(), "roomrelay-env-"));
+  temporaryDirectories.push(cwd);
+  return cwd;
+}
+
+function addClaimTokenBreadcrumb(cwd: string): void {
+  const breadcrumbPath = path.join(cwd, ".clerk", "keyless.json");
+  mkdirSync(path.dirname(breadcrumbPath), { recursive: true });
+  writeFileSync(breadcrumbPath, JSON.stringify({ claimToken: "unclaimed" }));
+}
+
+afterEach(() => {
+  for (const cwd of temporaryDirectories.splice(0)) rmSync(cwd, { recursive: true, force: true });
+});
 
 const fullEnv: Record<string, string> = {
   DATABASE_URL: "postgresql://u:p@localhost:5432/db",
@@ -22,12 +43,20 @@ const fullEnv: Record<string, string> = {
 
 describe("loadConfig capabilities", () => {
   it("reports every capability available when all vars are set", () => {
-    const c = loadConfig(fullEnv);
+    const c = loadConfig(fullEnv, temporaryCwd());
     expect(c.capabilities.database.status).toBe("available");
     expect(c.capabilities.identity.status).toBe("available");
     expect(c.capabilities.objectStore.status).toBe("available");
     expect(c.capabilities.paypal.status).toBe("available");
     expect(c.capabilities.ai.status).toBe("available");
+  });
+
+  it("reports keyless development identity when configured with an unclaimed instance", () => {
+    const cwd = temporaryCwd();
+    addClaimTokenBreadcrumb(cwd);
+    const c = loadConfig({ ...fullEnv, NODE_ENV: "development" }, cwd);
+
+    expect(c.capabilities.identity).toEqual({ status: "keyless-dev", missing: [] });
   });
 
   it("reports unavailable with missing var names, never values", () => {
@@ -65,6 +94,11 @@ describe("live payment guard", () => {
   it("defaults to sandbox", () => {
     const c = loadConfig({});
     expect(c.env.PAYPAL_ENVIRONMENT).toBe("sandbox");
+  });
+  it("rejects the test identity seam in production", () => {
+    expect(() => loadConfig({ NODE_ENV: "production", ROOMRELAY_TEST_IDENTITY: "enabled" })).toThrowError(
+      /ROOMRELAY_TEST_IDENTITY/,
+    );
   });
   it("reports the effective PayPal environment on the capability (for /api/health)", () => {
     expect(loadConfig({}).capabilities.paypal.environment).toBe("sandbox");

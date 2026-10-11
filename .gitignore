@@ -2,6 +2,8 @@
 .env
 .env.*
 !.env.example
+# Clerk CLI development state is local and may contain temporary credentials.
+.clerk/
 *.pem
 *.key
 *.keystore
@@ -9,6 +11,7 @@
 local.properties
 node_modules/
 .next/
+.next-e2e/
 dist/
 build/
 .gradle/

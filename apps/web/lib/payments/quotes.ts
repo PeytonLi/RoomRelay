@@ -112,18 +112,30 @@ async function createQuoteSnapshot(
   const items = await tx.item.findMany({ where: { id: { in: [...uniqueIds] } } });
   if (items.length !== uniqueIds.size) throw new PaymentError("NOT_FOUND", "One or more items were not found");
   const byId = new Map(items.map((item) => [item.id, item]));
+  const publishedVersions = await tx.listingVersion.findMany({
+    where: {
+      OR: items.flatMap((item) =>
+        item.publishedVersion === null ? [] : [{ itemId: item.id, version: item.publishedVersion }],
+      ),
+    },
+  });
+  const publishedByItemId = new Map(publishedVersions.map((listingVersion) => [listingVersion.itemId, listingVersion]));
   const snapshotLines = input.lines.map((line) => {
     const item = byId.get(line.itemId)!;
     if (item.status !== "ACTIVE" || item.sellerId !== input.sellerId) {
       throw new PaymentError("QUOTE_NOT_PAYABLE", "Every item must be active and owned by the quoted seller");
     }
+    const listingVersion = item.publishedVersion === null ? null : publishedByItemId.get(item.id);
+    if (!listingVersion) {
+      throw new PaymentError("QUOTE_NOT_PAYABLE", "Every item must have a published listing version");
+    }
     return {
       itemId: item.id,
       itemUpdatedAt: item.updatedAt,
-      title: item.title.slice(0, 127),
-      widthM: item.widthM,
-      depthM: item.depthM,
-      heightM: item.heightM,
+      title: listingVersion.title.slice(0, 127),
+      widthM: listingVersion.widthM,
+      depthM: listingVersion.depthM,
+      heightM: listingVersion.heightM,
       conditionDisclosure: line.conditionDisclosure ?? null,
       priceCents: line.priceCents,
     };

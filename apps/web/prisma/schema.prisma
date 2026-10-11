@@ -37,57 +37,203 @@ enum AssetProcessingStatus {
   DELETED
 }
 
+enum AssetKind {
+  PHOTO
+  MODEL_GLB
+  VIDEO
+}
+
+enum AssetVisibility {
+  PRIVATE
+  APPROVED_LISTING
+}
+
+enum UploadRole {
+  CONDITION_PHOTO
+  ITEM_MODEL
+  ROOM_MODEL
+}
+
+enum StorageBackend {
+  LOCAL_FS
+  S3
+}
+
+enum UploadStatus {
+  PENDING
+  UPLOADED
+  FINALIZED
+  REJECTED
+}
+
+model User {
+  id          String    @id @default(uuid())
+  authSubject String    @unique @map("auth_subject")
+  displayName String?   @map("display_name")
+  disabledAt  DateTime? @map("disabled_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  rooms               Room[]            @relation("RoomOwner")
+  items               Item[]            @relation("ItemSeller")
+  assets              Asset[]
+  uploadManifests     UploadManifest[]
+  roomRevisions       RoomRevision[]    @relation("RoomRevisionCreator")
+  listingVersions     ListingVersion[]  @relation("ListingVersionCreator")
+  layoutRevisions     LayoutRevision[]  @relation("LayoutRevisionOwner")
+
+  @@map("users")
+}
+
 model Room {
   id                  String   @id @default(uuid())
   ownerId             String   @map("owner_id")
-  geometry            Json
+  name                String
   measurementRevision Int      @default(1) @map("measurement_revision")
   createdAt           DateTime @default(now()) @map("created_at")
   updatedAt           DateTime @updatedAt @map("updated_at")
 
-  assets Asset[]
+  owner     User             @relation("RoomOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  revisions RoomRevision[]
+  layouts   LayoutRevision[]
+  assets    Asset[]
+  quotes    Quote[]
 
   @@map("rooms")
 }
 
-model Item {
-  id              String         @id @default(uuid())
-  sellerId        String         @map("seller_id")
-  title           String
-  widthM          Decimal?       @map("width_m") @db.Decimal(7, 4)
-  depthM          Decimal?       @map("depth_m") @db.Decimal(7, 4)
-  heightM         Decimal?       @map("height_m") @db.Decimal(7, 4)
-  dimsConfirmedAt DateTime?      @map("dims_confirmed_at")
-  provenance      ItemProvenance
-  status          ItemStatus     @default(DRAFT)
-  createdAt       DateTime       @default(now()) @map("created_at")
-  updatedAt       DateTime       @updatedAt @map("updated_at")
+model RoomRevision {
+  id          String   @id @default(uuid())
+  roomId      String   @map("room_id")
+  revision    Int
+  geometry    Json
+  createdById String   @map("created_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
 
-  assets Asset[]
-  quoteLines QuoteLine[]
-  inventory ItemInventory?
+  room      Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  createdBy User @relation("RoomRevisionCreator", fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@unique([roomId, revision])
+  @@map("room_revisions")
+}
+
+model Item {
+  id              String     @id @default(uuid())
+  sellerId        String     @map("seller_id")
+  status          ItemStatus @default(DRAFT)
+  version         Int        @default(1)
+  currentVersion  Int        @default(1) @map("current_version")
+  publishedVersion Int?      @map("published_version")
+  createdAt       DateTime   @default(now()) @map("created_at")
+  updatedAt       DateTime   @updatedAt @map("updated_at")
+
+  seller          User            @relation("ItemSeller", fields: [sellerId], references: [id], onDelete: Cascade)
+  versions        ListingVersion[]
+  assets          Asset[]
+  quoteLines      QuoteLine[]
+  inventory       ItemInventory?
   inventoryHoldItems InventoryHoldItem[]
 
   @@map("items")
 }
 
+model ListingVersion {
+  id                    String         @id @default(uuid())
+  itemId                String         @map("item_id")
+  version               Int
+  title                 String
+  category              String?
+  widthM                Decimal        @map("width_m") @db.Decimal(7, 4)
+  depthM                Decimal        @map("depth_m") @db.Decimal(7, 4)
+  heightM               Decimal        @map("height_m") @db.Decimal(7, 4)
+  dimsConfirmed         Boolean        @default(false) @map("dims_confirmed")
+  conditionNotes        String?        @map("condition_notes")
+  conditionPhotoAssetIds String[]      @default([]) @map("condition_photo_asset_ids")
+  priceCents            Int            @default(0) @map("price_cents")
+  currency              String         @default("USD")
+  pickupWindowStart     DateTime       @map("pickup_window_start")
+  pickupWindowEnd       DateTime       @map("pickup_window_end")
+  coarseArea            String         @default("") @map("coarse_area")
+  exactPickupAddress    String         @default("") @map("exact_pickup_address")
+  provenance            ItemProvenance
+  createdById           String         @map("created_by_id")
+  createdAt             DateTime       @default(now()) @map("created_at")
+
+  item      Item @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  createdBy User @relation("ListingVersionCreator", fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@unique([itemId, version])
+  @@map("listing_versions")
+}
+
 model Asset {
   id               String                 @id @default(uuid())
+  ownerId          String                 @map("owner_id")
   itemId           String?                @map("item_id")
   roomId           String?                @map("room_id")
+  kind             AssetKind
+  visibility       AssetVisibility        @default(PRIVATE)
+  objectKey        String                 @unique @map("object_key")
+  contentType      String                 @map("content_type")
   sha256           String
   bytes            BigInt
   bounds           Json?
   normalization    Json?
-  provenance       ItemProvenance
+  provenance       ItemProvenance?
   processingStatus AssetProcessingStatus  @default(UPLOADED) @map("processing_status")
   createdAt        DateTime               @default(now()) @map("created_at")
   updatedAt        DateTime               @updatedAt @map("updated_at")
 
-  item Item? @relation(fields: [itemId], references: [id], onDelete: SetNull)
-  room Room? @relation(fields: [roomId], references: [id], onDelete: SetNull)
+  owner          User             @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  item           Item?            @relation(fields: [itemId], references: [id], onDelete: SetNull)
+  room           Room?            @relation(fields: [roomId], references: [id], onDelete: SetNull)
+  uploadManifest UploadManifest?
 
   @@map("assets")
+}
+
+model UploadManifest {
+  id            String        @id @default(uuid())
+  ownerId       String        @map("owner_id")
+  role          UploadRole
+  contentType   String        @map("content_type")
+  declaredBytes Int           @map("declared_bytes")
+  declaredSha256 String       @map("declared_sha256")
+  objectKey     String        @unique @map("object_key")
+  backend       StorageBackend
+  status        UploadStatus  @default(PENDING)
+  assetId       String?       @unique @map("asset_id")
+  expiresAt     DateTime      @map("expires_at")
+  createdAt     DateTime      @default(now()) @map("created_at")
+  updatedAt     DateTime      @updatedAt @map("updated_at")
+
+  owner User   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  asset Asset? @relation(fields: [assetId], references: [id], onDelete: SetNull)
+
+  @@map("upload_manifests")
+}
+
+model LayoutRevision {
+  id                    String   @id @default(uuid())
+  roomId                String   @map("room_id")
+  roomRevision          Int      @map("room_revision")
+  parentId              String?  @map("parent_id")
+  ownerId               String   @map("owner_id")
+  placements            Json
+  requirements          Json
+  findings              Json
+  fitsProvidedMeasurements Boolean @map("fits_provided_measurements")
+  totalCents            Int      @map("total_cents")
+  prefilterReasons      Json     @map("prefilter_reasons")
+  quotable              Boolean
+  createdAt             DateTime @default(now()) @map("created_at")
+
+  room     Room              @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  owner    User              @relation("LayoutRevisionOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  parent   LayoutRevision?   @relation("LayoutRevisionParent", fields: [parentId], references: [id], onDelete: SetNull)
+  children LayoutRevision[]  @relation("LayoutRevisionParent")
+
+  @@map("layout_revisions")
 }
 
 enum EvidenceSource {
@@ -212,6 +358,7 @@ model Quote {
 
   previousQuote Quote?          @relation("QuoteRevisions", fields: [previousQuoteId], references: [id], onDelete: SetNull)
   nextQuotes    Quote[]         @relation("QuoteRevisions")
+  room          Room?           @relation(fields: [roomId], references: [id], onDelete: SetNull)
   lines         QuoteLine[]
   holds         InventoryHold[]
   orders        PaymentOrder[]
@@ -245,7 +392,7 @@ model ItemInventory {
   state     InventoryState @default(AVAILABLE)
   holdId    String?        @map("hold_id")
   version   Int            @default(0)
-  updatedAt DateTime       @updatedAt @map("updated_at")
+  updatedAt DateTime       @default(now()) @updatedAt @map("updated_at")
   item      Item           @relation(fields: [itemId], references: [id], onDelete: Cascade)
   hold      InventoryHold? @relation("InventoryHoldOwner", fields: [holdId], references: [id], onDelete: Restrict)
 
