@@ -165,7 +165,7 @@ describe("placementMatrix / footprintXZ", () => {
   it("throws on non-finite placement values", () => {
     expect(() => placementMatrix({ xM: NaN, zM: 0, yawRad: 0 })).toThrow(RangeError);
     expect(() => placementMatrix({ xM: 0, zM: Infinity, yawRad: 0 })).toThrow(RangeError);
-    expect(() => placementMatrix({ xM: 0, zM: 0, yawRad: 1e309 })).toThrow(RangeError);
+    expect(() => placementMatrix({ xM: 0, zM: 0, yawRad: Number.POSITIVE_INFINITY })).toThrow(RangeError);
   });
 });
 
@@ -248,7 +248,7 @@ describe("validateLayout (TEST-02 subset)", () => {
     expect(res.fitsProvidedMeasurements).toBe(false);
   });
   it("reports INVALID_PLACEMENT UNKNOWN for non-finite placements instead of a boundary FAIL", () => {
-    const res = validateLayout(roomFixture(), [item({ xM: 1e309, zM: 3, yawRad: 0 })]);
+    const res = validateLayout(roomFixture(), [item({ xM: Number.POSITIVE_INFINITY, zM: 3, yawRad: 0 })]);
     const finding = res.findings.find((f) => f.code === "INVALID_PLACEMENT")!;
     expect(finding.status).toBe("UNKNOWN");
     expect(res.findings.some((f) => f.code === "OUTSIDE_BOUNDARY")).toBe(false);

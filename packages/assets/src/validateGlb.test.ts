@@ -145,7 +145,7 @@ describe("validateGlb", () => {
     expectStatus(withJson((json) => {
       json.nodes.push({}, {}, {});
       json.nodes[0].children = [1];
-      json.nodes[1].children = [2];
+      json.nodes[1]!.children = [2];
     }), "REJECTED", "JSON_LIMIT", { maxNodeDepth: 1 });
   });
 

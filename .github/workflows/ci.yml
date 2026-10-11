@@ -52,6 +52,8 @@ jobs:
 
       - run: pnpm -r typecheck
 
+      - run: pnpm lint
+
       - run: pnpm -r test
 
       - run: pnpm --filter @roomrelay/web exec next build

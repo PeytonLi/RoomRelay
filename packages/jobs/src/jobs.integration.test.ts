@@ -407,11 +407,11 @@ databaseSuite("PgJobQueue integration", () => {
     expect(runningLease).not.toBeNull();
 
     await currentSubject("stats-succeeded");
-    const succeeded = await queue.enqueue({ ...input("stats-succeeded"), type: "stats-succeeded" });
+    await queue.enqueue({ ...input("stats-succeeded"), type: "stats-succeeded" });
     const succeededLease = await queue.lease({ workerId: "stats", types: ["stats-succeeded"], leaseMs: 1000 });
     expect(await queue.complete(succeededLease!.id, succeededLease!.leaseToken!, {}, tableGuard)).toBe("SUCCEEDED");
 
-    const failed = await queue.enqueue({ ...input("stats-failed"), type: "stats-failed" });
+    await queue.enqueue({ ...input("stats-failed"), type: "stats-failed" });
     const failedLease = await queue.lease({ workerId: "stats", types: ["stats-failed"], leaseMs: 1000 });
     expect(await queue.fail(failedLease!.id, failedLease!.leaseToken!, { reason: "terminal", retryable: false }))
       .toBe("FAILED");
@@ -420,7 +420,7 @@ databaseSuite("PgJobQueue integration", () => {
     expect(await queue.cancel(cancelled.job.id)).toBe("CANCELLED");
 
     await currentSubject("stats-superseded");
-    const superseded = await queue.enqueue({ ...input("stats-superseded"), type: "stats-superseded" });
+    await queue.enqueue({ ...input("stats-superseded"), type: "stats-superseded" });
     const supersededLease = await queue.lease({ workerId: "stats", types: ["stats-superseded"], leaseMs: 1000 });
     await currentSubject("stats-superseded", 2);
     expect(await queue.complete(supersededLease!.id, supersededLease!.leaseToken!, {}, tableGuard)).toBe("SUPERSEDED");

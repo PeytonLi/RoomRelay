@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { inspectGlb } from "@roomrelay/assets";
 import { normalizeItem, toMeters, type LayoutResult, type LinearUnit, type Placement } from "@roomrelay/spatial";
 import type { ViewerItem } from "@/lib/viewer-types";
@@ -150,16 +150,7 @@ function DraftInput({
   const [draft, setDraft] = useState(() => format(committed));
   const [focused, setFocused] = useState(false);
   const [invalid, setInvalid] = useState(false);
-
-  // External changes (drag, keyboard nudges, reset, item switch) re-sync the
-  // field only while it isn't focused.
-  useEffect(() => {
-    if (!focused) {
-      setDraft(format(committed));
-      setInvalid(false);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [committed, focused]);
+  const displayedDraft = focused ? draft : format(committed);
 
   const commit = (raw: string) => {
     const n = Number(raw);
@@ -183,9 +174,13 @@ function DraftInput({
       data-testid={testid}
       type="number"
       step={id === "in-yaw" ? 15 : 0.05}
-      value={draft}
+      value={displayedDraft}
       aria-invalid={invalid || undefined}
-      onFocus={() => setFocused(true)}
+      onFocus={() => {
+        setDraft(format(committed));
+        setInvalid(false);
+        setFocused(true);
+      }}
       onChange={(e) => {
         setDraft(e.target.value);
         commit(e.target.value);

@@ -15,6 +15,8 @@ import { LocalFsObjectReader } from "./objectReader";
 
 export class DevAcceptAllSubjectsGuard implements SubjectVersionGuard {
   async check(_subject: JobSubject, _tx: Queryable): Promise<SubjectState> {
+    void _subject;
+    void _tx;
     return "CURRENT";
   }
 }
