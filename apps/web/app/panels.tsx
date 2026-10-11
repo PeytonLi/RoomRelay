@@ -91,6 +91,7 @@ export function PlacementControls({
           testid="input-x"
           committed={placement.xM}
           format={(v) => v.toFixed(3)}
+          coerce={(n) => (n >= -100 && n <= 100 ? n : null)}
           onCommit={(n) => onChange({ ...placement, xM: n })}
         />
         <label htmlFor="in-z">Z (m)</label>
@@ -99,6 +100,7 @@ export function PlacementControls({
           testid="input-z"
           committed={placement.zM}
           format={(v) => v.toFixed(3)}
+          coerce={(n) => (n >= -100 && n <= 100 ? n : null)}
           onCommit={(n) => onChange({ ...placement, zM: n })}
         />
       </div>
@@ -109,6 +111,7 @@ export function PlacementControls({
           testid="input-yaw"
           committed={deg}
           format={(v) => v.toFixed(1)}
+          coerce={(n) => (Math.abs(n) <= 36000 ? normalizeYawDeg(n) : null)}
           onCommit={(n) => onChange({ ...placement, yawRad: (n * Math.PI) / 180 })}
         />
         <button className="btn" onClick={onReset} data-testid="reset-placement">
@@ -132,12 +135,16 @@ function DraftInput({
   testid,
   committed,
   format,
+  coerce,
   onCommit,
 }: {
   id: string;
   testid: string;
   committed: number;
   format: (v: number) => string;
+  /** Maps a parsed draft to the committable value, or null to reject it
+   * (out-of-range input gets aria-invalid and is never committed). */
+  coerce: (n: number) => number | null;
   onCommit: (n: number) => void;
 }) {
   const [draft, setDraft] = useState(() => format(committed));
@@ -156,9 +163,10 @@ function DraftInput({
 
   const commit = (raw: string) => {
     const n = Number(raw);
-    if (raw.trim() !== "" && Number.isFinite(n)) {
+    const v = raw.trim() !== "" && Number.isFinite(n) ? coerce(n) : null;
+    if (v !== null) {
       setInvalid(false);
-      onCommit(n);
+      onCommit(v);
     } else {
       setInvalid(true);
     }
@@ -194,6 +202,11 @@ function DraftInput({
       }}
     />
   );
+}
+
+/** Normalize degrees into (-180, 180]. */
+function normalizeYawDeg(deg: number): number {
+  return 180 - ((((180 - deg) % 360) + 360) % 360);
 }
 
 interface ImportDraft {

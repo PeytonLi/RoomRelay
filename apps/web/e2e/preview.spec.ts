@@ -71,6 +71,41 @@ test("placement inputs accept real per-key typing (draft state)", async ({ page 
   await expect(page.getByTestId("verdict")).not.toContainText("NaN");
 });
 
+test("out-of-range numeric drafts are rejected; huge yaw does not break the scene", async ({ page }) => {
+  await waitReady(page);
+  const yaw = page.getByTestId("input-yaw");
+  // Wait for the GLB + selection helper to be attached before sampling centers.
+  await page.waitForFunction(() => {
+    const c = (window as unknown as { __rrDebug?: { centers(id: string): { model: { x: number; y: number }; helper: { x: number; y: number } | null } | null } }).__rrDebug?.centers("item-sheen-chair");
+    return !!c && !!c.helper;
+  });
+
+  // Astronomical draft: rejected, never committed, scene stays intact.
+  await yaw.fill("1e308");
+  await expect(yaw).toHaveAttribute("aria-invalid", "true");
+  const centers = await page.evaluate(() =>
+    (window as unknown as { __rrDebug?: { centers(id: string): { model: { x: number; y: number }; helper: { x: number; y: number } | null } | null } }).__rrDebug?.centers("item-sheen-chair"),
+  );
+  expect(centers).toBeTruthy();
+  expect(centers!.helper).not.toBeNull();
+  await expect(page.getByTestId("verdict")).toHaveText("Fits provided measurements");
+  // Blur resyncs the field to the last committed value (default yaw is 180°).
+  await yaw.press("Tab");
+  await expect(yaw).toHaveValue("180.0");
+
+  // Out-of-range but sane magnitude yaw: 450° normalizes to 90°.
+  await yaw.fill("450");
+  await yaw.press("Tab");
+  await expect(yaw).toHaveValue("90.0");
+
+  // Huge X/Z drafts are likewise rejected.
+  const x = page.getByTestId("input-x");
+  await x.fill("1e308");
+  await expect(x).toHaveAttribute("aria-invalid", "true");
+  await x.press("Tab");
+  await expect(x).not.toHaveValue("");
+});
+
 test("no-WebGL fallback shows the 2D plan and item panel", async ({ page }) => {
   await page.goto("/?webgl=off");
   await expect(page.getByText(/WebGL/)).toBeVisible();

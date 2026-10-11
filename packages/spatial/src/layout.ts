@@ -44,6 +44,19 @@ export function validateLayout(
   const footprints = new Map<string, Vec2[]>();
 
   for (const item of items) {
+    const { xM, zM, yawRad } = item.placement;
+    if (![xM, zM, yawRad].every(Number.isFinite)) {
+      findings.push(
+        finding({
+          code: "INVALID_PLACEMENT",
+          status: "UNKNOWN",
+          itemIds: [item.id],
+          geometryRefs: [],
+          message: `${item.title ?? item.id}: placement is not a finite number; fit cannot be verified.`,
+        }),
+      );
+      continue;
+    }
     const fp = footprintXZ(item, item.placement);
     footprints.set(item.id, fp);
 
@@ -195,12 +208,15 @@ export function validateLayout(
     }
   }
 
-  const blocking = findings.some((f) => f.status === "FAIL" || (f.status === "UNKNOWN" && f.code !== "HEIGHT_VS_CEILING"));
-  // Height unknown is non-critical unless the caller marks it critical later;
-  // door-sweep UNKNOWN is critical per C-06 (protected zone unmeasured).
+  const blocking = findings.some(
+    (f) => f.status === "FAIL" || (f.status === "UNKNOWN" && f.code !== "HEIGHT_VS_CEILING" && f.code !== "INVALID_PLACEMENT"),
+  );
+  // Height and invalid-placement UNKNOWNs are non-critical: they mean the
+  // check couldn't be performed, not that the layout fails. Door-sweep
+  // UNKNOWN is critical per C-06 (protected zone unmeasured).
   const heightUnknownOnly =
     !blocking &&
-    findings.some((f) => f.status === "UNKNOWN"); // only possible remaining UNKNOWN is height
+    findings.some((f) => f.status === "UNKNOWN"); // only possible remaining UNKNOWNs are height / invalid placement
   const fits = !blocking && !heightUnknownOnly;
   const verdict = fits
     ? "Fits provided measurements"

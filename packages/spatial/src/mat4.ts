@@ -65,6 +65,9 @@ export function mat4TransformPoint(m: Mat4, p: Vec3): Vec3 {
 /** Placement transform: rotate about +Y then translate to (xM, 0, zM).
  * Column-major, right-handed. +yaw about +Y maps +Z front toward +X. */
 export function placementMatrix({ xM, zM, yawRad }: Placement): Mat4 {
+  if (![xM, zM, yawRad].every(Number.isFinite)) {
+    throw new RangeError(`placementMatrix: non-finite placement (xM=${xM}, zM=${zM}, yawRad=${yawRad})`);
+  }
   const c = Math.cos(yawRad);
   const s = Math.sin(yawRad);
   return [c, 0, -s, 0, 0, 1, 0, 0, s, 0, c, 0, xM, 0, zM, 1];

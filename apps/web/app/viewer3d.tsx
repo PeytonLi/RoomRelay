@@ -85,7 +85,7 @@ export default function Viewer3D({ room, items, placements, selectedId, onSelect
   function syncPlacements(s: NonNullable<typeof stateRef.current>) {
     for (const [id, g] of s.itemGroups) {
       const p = s.placements[id];
-      if (!p) continue;
+      if (!p || ![p.xM, p.zM, p.yawRad].every(Number.isFinite)) continue;
       g.matrixAutoUpdate = false;
       g.matrix.fromArray(placementMatrix(p));
       // Force-compose the whole subtree now: updateWorldMatrix (used by
