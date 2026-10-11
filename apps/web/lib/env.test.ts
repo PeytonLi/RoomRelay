@@ -66,4 +66,10 @@ describe("live payment guard", () => {
     const c = loadConfig({});
     expect(c.env.PAYPAL_ENVIRONMENT).toBe("sandbox");
   });
+  it("reports the effective PayPal environment on the capability (for /api/health)", () => {
+    expect(loadConfig({}).capabilities.paypal.environment).toBe("sandbox");
+    expect(loadConfig({ ...fullEnv, PAYPAL_ENVIRONMENT: "live", ALLOW_LIVE_PAYMENTS: "true" }).capabilities.paypal.environment).toBe(
+      "live",
+    );
+  });
 });

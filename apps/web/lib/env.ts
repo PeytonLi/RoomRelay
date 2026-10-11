@@ -38,6 +38,9 @@ export type CapabilityName = keyof typeof groups;
 export interface CapabilityState {
   status: "available" | "unavailable";
   missing: string[];
+  /** Present only on the paypal capability: the effective PayPal mode
+   * from parsed env ("sandbox" unless live is explicitly enabled). */
+  environment?: "sandbox" | "live";
 }
 
 const baseSchema = z.object({
@@ -103,6 +106,7 @@ export function loadConfig(source: Record<string, string | undefined> = process.
     });
     capabilities[name] = missing.length === 0 ? { status: "available", missing: [] } : { status: "unavailable", missing };
   }
+  capabilities.paypal.environment = env.PAYPAL_ENVIRONMENT;
 
   return { env, capabilities };
 }

@@ -169,3 +169,8 @@ button.btn:disabled { opacity: 0.45; cursor: default; }
   .topbar .spacer { display: none; }
   .topbar .sub { display: block; }
 }
+
+.field-row input[aria-invalid="true"] {
+  border-color: var(--fail);
+  outline: 1px solid var(--fail);
+}

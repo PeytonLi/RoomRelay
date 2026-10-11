@@ -53,7 +53,7 @@ export default function Plan2D({ room, items, placements, selectedId, onSelect }
       ))}
       {items.map((it) => {
         const p = placements[it.id];
-        if (!p) return null;
+        if (!p || ![p.xM, p.zM, p.yawRad].every(Number.isFinite)) return null;
         const fp = footprintXZ(it, p);
         const sel = it.id === selectedId;
         const cx = (p.xM - minX) * S;
