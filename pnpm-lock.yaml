@@ -19,6 +19,9 @@ importers:
       '@roomrelay/assets':
         specifier: workspace:*
         version: link:../../packages/assets
+      '@roomrelay/planning':
+        specifier: workspace:*
+        version: link:../../packages/planning
       '@roomrelay/spatial':
         specifier: workspace:*
         version: link:../../packages/spatial
@@ -80,6 +83,28 @@ importers:
       '@types/node':
         specifier: 24.5.2
         version: 24.5.2
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: 4.1.11
+        version: 4.1.11(@types/node@24.5.2)(vite@8.3.4(@types/node@24.5.2)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15))
+
+  packages/planning:
+    dependencies:
+      '@roomrelay/spatial':
+        specifier: workspace:*
+        version: link:../spatial
+      zod:
+        specifier: 4.6.5
+        version: 4.6.5
+    devDependencies:
+      '@types/node':
+        specifier: 24.5.2
+        version: 24.5.2
+      dotenv:
+        specifier: 17.2.3
+        version: 17.2.3
       typescript:
         specifier: 5.9.3
         version: 5.9.3

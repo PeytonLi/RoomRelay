@@ -191,6 +191,22 @@ describe("validateLayout (TEST-02 subset)", () => {
     const bad = validateLayout(roomFixture(), [item({ xM: 2.8, zM: 0.33, yawRad: 0 })]);
     expect(bad.findings.find((f) => f.code === "BOUNDARY_MARGIN")!.status).toBe("FAIL");
   });
+  it("passes when computed clearance is exactly the margin after a 90° yaw", () => {
+    // Rotated 90°, the Z half-extent is widthM/2 = 0.31; zM 0.36 puts the
+    // footprint mathematically 0.05 from the z=0 wall (float dust aside).
+    const res = validateLayout(roomFixture(), [item({ xM: 2.8, zM: 0.36, yawRad: Math.PI / 2 })]);
+    const edge = res.findings.find((f) => f.code === "BOUNDARY_MARGIN")!;
+    expect(edge.status).toBe("PASS");
+    expect(edge.measuredValue).toBeCloseTo(0.05, 5);
+  });
+  it("fails when clearance is genuinely below the margin (0.0499)", () => {
+    const res = validateLayout(roomFixture(), [item({ xM: 2.8, zM: 0.36 - 0.0001, yawRad: Math.PI / 2 })]);
+    expect(res.findings.find((f) => f.code === "BOUNDARY_MARGIN")!.status).toBe("FAIL");
+  });
+  it("passes when clearance is a float-dust shortfall (1e-9 under the margin)", () => {
+    const res = validateLayout(roomFixture(), [item({ xM: 2.8, zM: 0.36 - 1e-9, yawRad: Math.PI / 2 })]);
+    expect(res.findings.find((f) => f.code === "BOUNDARY_MARGIN")!.status).toBe("PASS");
+  });
   it("fails when a 45°-rotated item clips a corner", () => {
     // Square-ish footprint rotated 45° in the x=0,z=4 corner.
     const res = validateLayout(roomFixture(), [
