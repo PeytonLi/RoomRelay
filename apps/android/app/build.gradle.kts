@@ -6,15 +6,17 @@ plugins {
 
 android {
     namespace = "com.roomrelay.app"
-    compileSdk = 36
+    compileSdk {
+        version = release(37)
+    }
     buildToolsVersion = "36.0.0"
 
     defaultConfig {
         applicationId = "com.roomrelay.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0-t002"
+        versionCode = 2
+        versionName = "0.2.0-t002"
     }
 
     buildTypes {
