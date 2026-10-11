@@ -153,7 +153,9 @@ export default function CheckoutClient({ checkoutId }: { checkoutId: string }) {
         <dl className="facts-list">
           <dt>Merchant</dt><dd><code>{checkout.merchantId}</code> ({checkout.environment === "sandbox" ? "PayPal Sandbox — test money only" : checkout.environment})</dd>
           <dt>Total</dt><dd className="total">{formatMoney(checkout.amountCents, checkout.currency)}</dd>
-          <dt>Item hold</dt><dd>{holdExpired ? "Expired" : <>Held for you for <span data-testid="hold-countdown">{formatRemaining(holdMs)}</span></>}</dd>
+          <dt>Item hold</dt><dd>{checkout.hold.state === "ACTIVE" && !CLOSED.has(checkout.status) && !holdExpired
+            ? <>Held for you for <span data-testid="hold-countdown">{formatRemaining(holdMs)}</span></>
+            : ({ CONSUMED: "Consumed", RELEASED: "Released", EXPIRED: "Expired" }[checkout.hold.state] ?? (holdExpired ? "Expired" : "Ended"))}</dd>
         </dl>
         <table className="data-table">
           <thead><tr><th scope="col">Item</th><th scope="col">Condition disclosure</th><th scope="col" className="num">Price</th></tr></thead>

@@ -3,7 +3,7 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "../../lib/generated/prisma/client";
 import { createPaymentDeps } from "../../lib/payments/deps";
 import { createProviderOrder, recordApproval, captureCheckout } from "../../lib/payments/checkout";
-import { startCheckout, expireHolds } from "../../lib/payments/holds";
+import { startCheckout, cancelCheckout, expireHolds } from "../../lib/payments/holds";
 import { requestQuote, sellerApproveQuote, buyerApproveQuote, reviseQuote } from "../../lib/payments/quotes";
 import { reconcileOrder, reconcilePayments } from "../../lib/payments/reconcile";
 import { refundFull, reconcileRefund } from "../../lib/payments/refunds";
@@ -170,6 +170,33 @@ dbDescribe("T-006 payment integration", () => {
     const yInventory = await prisma.itemInventory.findUnique({ where: { itemId: y.id } });
     expect(yInventory?.state ?? "AVAILABLE").toBe("AVAILABLE");
     expect(await prisma.paymentOrder.count({ where: { buyerId: "buyer-b" } })).toBe(0);
+  });
+
+  it("a canceled checkout can be restarted with a new idempotency key", async () => {
+    const item = await seedItem();
+    const quote = await approvedQuote("restart-buyer", [{ itemId: item.id, priceCents: 1234 }]);
+    const first = await startCheckout({
+      buyerId: "restart-buyer", quoteId: quote.id, idempotencyKey: "restart-key-1",
+    }, deps);
+    const firstHold = await prisma.inventoryHold.findUniqueOrThrow({ where: { id: first.holdId } });
+    expect(firstHold.state).toBe("ACTIVE");
+    const canceled = await cancelCheckout({ orderId: first.id, buyerId: "restart-buyer" }, deps);
+    expect(canceled.status).toBe("CANCELED");
+    expect((await prisma.inventoryHold.findUniqueOrThrow({ where: { id: first.holdId } })).state).toBe("RELEASED");
+    // The same idempotency key still replays the same (canceled) order.
+    const replay = await startCheckout({
+      buyerId: "restart-buyer", quoteId: quote.id, idempotencyKey: "restart-key-1",
+    }, deps);
+    expect(replay.id).toBe(first.id);
+    expect(replay.status).toBe("CANCELED");
+    // A new key starts a fresh order with a fresh ACTIVE hold on the same quote.
+    const second = await startCheckout({
+      buyerId: "restart-buyer", quoteId: quote.id, idempotencyKey: "restart-key-2",
+    }, deps);
+    expect(second.id).not.toBe(first.id);
+    expect(second.holdId).not.toBe(first.holdId);
+    expect((await prisma.inventoryHold.findUniqueOrThrow({ where: { id: second.holdId } })).state).toBe("ACTIVE");
+    expect(second.status).toBe("CREATED");
   });
 
   it("TEST-08: retries preserve checkout and provider operation identity", async () => {

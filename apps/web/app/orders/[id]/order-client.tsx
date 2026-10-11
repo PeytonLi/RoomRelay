@@ -39,6 +39,7 @@ export default function OrderClient({ orderId }: { orderId: string }) {
   const [refundReason, setRefundReason] = useState("");
   const [relistConfirm, setRelistConfirm] = useState<Set<string>>(new Set());
   const [relisted, setRelisted] = useState<Set<string>>(new Set());
+  const [republished, setRepublished] = useState<Set<string>>(new Set());
 
   const load = useCallback(async () => {
     try {
@@ -119,8 +120,15 @@ export default function OrderClient({ orderId }: { orderId: string }) {
     await act("refund", () => apiJson(`/api/v1/orders/${orderId}/refund`, { json: { requestKey, reason: refundReason.trim() } }), "Refund requested from PayPal Sandbox.");
   };
   const relist = async (itemId: string) => {
-    const ok = await act(`relist-${itemId}`, () => apiJson(`/api/v1/items/${itemId}/relist`, { json: { possessionConfirmed: true } }), `${titleOf(itemId)} relisted.`);
+    const ok = await act(`relist-${itemId}`, () => apiJson(`/api/v1/items/${itemId}/relist`, { json: { possessionConfirmed: true } }), `${titleOf(itemId)} relisted as a draft.`);
     if (ok) setRelisted(new Set(relisted).add(itemId));
+  };
+  const republish = async (itemId: string) => {
+    const ok = await act(`publish-${itemId}`, async () => {
+      const item = await apiJson<{ version: number }>(`/api/v1/items/${itemId}`);
+      await apiJson(`/api/v1/items/${itemId}/publish`, { json: { expectedVersion: item.version } });
+    }, `${titleOf(itemId)} published.`);
+    if (ok) setRepublished(new Set(republished).add(itemId));
   };
 
   return (
@@ -149,7 +157,9 @@ export default function OrderClient({ orderId }: { orderId: string }) {
           <tfoot><tr><th scope="row" colSpan={2}>Total</th><td className="num total">{formatMoney(order.quote.totalCents, order.currency)}</td></tr></tfoot>
         </table>
         {order.quote.acknowledgedWarnings && order.quote.acknowledgedWarnings.length > 0 && <p className="muted">Buyer acknowledged: {order.quote.acknowledgedWarnings.join(", ")}</p>}
-        <p className="muted">PayPal Sandbox processed this payment. The pickup itself is arranged between you and is not covered by PayPal purchase protection.</p>
+        <p className="muted">{order.paidAt
+          ? "PayPal Sandbox processed this payment. The pickup itself is arranged between you and is not covered by PayPal purchase protection."
+          : "No payment has been taken for this order yet."}</p>
       </section>
 
       {order.placementGuide && (
@@ -271,7 +281,15 @@ export default function OrderClient({ orderId }: { orderId: string }) {
             )}
           {refunded && order.quote.lines.map((l) => (
             <div key={l.itemId} className="relist">
-              {relisted.has(l.itemId) ? <p role="status">{l.title} is listed again.</p> : (
+              {republished.has(l.itemId) ? <p role="status">{l.title} is public again.</p>
+                : relisted.has(l.itemId) ? (
+                  <>
+                    <p role="status">{l.title} was relisted as a draft and isn&apos;t public yet.</p>
+                    <button type="button" onClick={() => republish(l.itemId)} disabled={busy !== null}>
+                      {busy === `publish-${l.itemId}` ? "Publishing…" : "Publish listing"}
+                    </button>
+                  </>
+                ) : (
                 <>
                   <label className="check">
                     <input type="checkbox" checked={relistConfirm.has(l.itemId)} onChange={(e) => {

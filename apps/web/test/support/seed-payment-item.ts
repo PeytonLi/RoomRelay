@@ -13,6 +13,7 @@ export async function seedPublishedPaymentItem(
   prisma: PrismaClient,
   sellerName: string,
   title = "T006 item",
+  options: { conditionNotes?: string } = {},
 ) {
   const seller = await upsertPaymentSeller(prisma, sellerName);
   const photo = await prisma.asset.create({
@@ -41,6 +42,7 @@ export async function seedPublishedPaymentItem(
           depthM: "0.4000",
           heightM: "0.7000",
           dimsConfirmed: true,
+          ...(options.conditionNotes === undefined ? {} : { conditionNotes: options.conditionNotes }),
           conditionPhotoAssetIds: [photo.id],
           priceCents: 1234,
           currency: "USD",

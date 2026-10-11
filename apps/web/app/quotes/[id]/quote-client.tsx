@@ -84,6 +84,11 @@ export default function QuoteClient({ quoteId }: { quoteId: string }) {
 
   const startCheckout = () => act("checkout", async () => {
     const storageKey = `rr-checkout-key:${quoteId}`;
+    // A checkout that ended (canceled/expired/failed) can never accept payment;
+    // reusing its idempotency key would just return the same closed order.
+    if (quote!.checkout && CLOSED_CHECKOUT.has(quote!.checkout.status)) {
+      sessionStorage.removeItem(storageKey);
+    }
     const idempotencyKey = sessionStorage.getItem(storageKey) ?? newIdempotencyKey("checkout");
     sessionStorage.setItem(storageKey, idempotencyKey);
     const body = await apiJson<{ checkout: { id: string } }>("/api/v1/checkouts", { json: { quoteId, idempotencyKey } });

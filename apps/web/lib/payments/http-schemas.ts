@@ -7,7 +7,6 @@ export const quoteBody = z.object({
   lines: z.array(z.object({
     itemId: id,
     priceCents: z.number().int().positive().safe(),
-    conditionDisclosure: z.string().max(127).optional(),
   }).strict()).min(1).max(50),
   discountCents: z.number().int().nonnegative().safe().default(0),
   pickupSlot: z.object({
