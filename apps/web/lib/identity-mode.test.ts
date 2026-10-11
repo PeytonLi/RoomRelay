@@ -12,10 +12,14 @@ function temporaryCwd(): string {
   return cwd;
 }
 
-function addBreadcrumb(cwd: string, publishableKey: string, nested = false): void {
-  const breadcrumbPath = nested
-    ? path.join(cwd, ".clerk", ".tmp", "keyless.json")
-    : path.join(cwd, ".clerk", "keyless.json");
+function addClaimTokenBreadcrumb(cwd: string, claimToken = "unclaimed"): void {
+  const breadcrumbPath = path.join(cwd, ".clerk", "keyless.json");
+  mkdirSync(path.dirname(breadcrumbPath), { recursive: true });
+  writeFileSync(breadcrumbPath, JSON.stringify({ claimToken }));
+}
+
+function addLegacyBreadcrumb(cwd: string, publishableKey: string): void {
+  const breadcrumbPath = path.join(cwd, ".clerk", ".tmp", "keyless.json");
   mkdirSync(path.dirname(breadcrumbPath), { recursive: true });
   writeFileSync(breadcrumbPath, JSON.stringify({ publishableKey }));
 }
@@ -34,21 +38,27 @@ describe("getIdentityMode", () => {
     expect(getIdentityMode({}, temporaryCwd())).toBe("unavailable");
   });
 
-  it("allows an unclaimed breadcrumb in non-automated development", () => {
+  it("allows a claim-token breadcrumb in non-automated development", () => {
     const cwd = temporaryCwd();
-    addBreadcrumb(cwd, keys.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY, true);
+    addClaimTokenBreadcrumb(cwd);
     expect(getIdentityMode({ ...keys, NODE_ENV: "development" }, cwd)).toBe("keyless-dev");
   });
 
-  it("rejects an unclaimed breadcrumb in automated environments", () => {
+  it("ignores an empty claim token", () => {
     const cwd = temporaryCwd();
-    addBreadcrumb(cwd, keys.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY);
+    addClaimTokenBreadcrumb(cwd, " ");
+    expect(getIdentityMode({ ...keys, NODE_ENV: "development" }, cwd)).toBe("available");
+  });
+
+  it("rejects a claim-token breadcrumb in automated environments", () => {
+    const cwd = temporaryCwd();
+    addClaimTokenBreadcrumb(cwd);
     expect(getIdentityMode({ ...keys, NODE_ENV: "development", CI: "1" }, cwd)).toBe("unavailable");
   });
 
   it("honors the keyless-disabled flag", () => {
     const cwd = temporaryCwd();
-    addBreadcrumb(cwd, keys.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY);
+    addClaimTokenBreadcrumb(cwd);
     expect(
       getIdentityMode(
         { ...keys, NODE_ENV: "development", NEXT_PUBLIC_CLERK_KEYLESS_DISABLED: "1" },
@@ -59,8 +69,14 @@ describe("getIdentityMode", () => {
 
   it("rejects unclaimed breadcrumbs in production", () => {
     const cwd = temporaryCwd();
-    addBreadcrumb(cwd, keys.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY);
+    addClaimTokenBreadcrumb(cwd);
     expect(getIdentityMode({ ...keys, NODE_ENV: "production" }, cwd)).toBe("unavailable");
+  });
+
+  it("recognizes the legacy keyless breadcrumb with a matching publishable key", () => {
+    const cwd = temporaryCwd();
+    addLegacyBreadcrumb(cwd, keys.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY);
+    expect(getIdentityMode({ ...keys, NODE_ENV: "development" }, cwd)).toBe("keyless-dev");
   });
 
   it("treats keys without a matching breadcrumb as available", () => {

@@ -37,23 +37,25 @@ function canUseKeyless(source: Record<string, string | undefined>): boolean {
   );
 }
 
-function hasMatchingBreadcrumb(cwd: string, publishableKey: string): boolean {
+function hasUnclaimedBreadcrumb(cwd: string, publishableKey: string): boolean {
   const paths = [
-    path.join(cwd, ".clerk", "keyless.json"),
-    path.join(cwd, ".clerk", ".tmp", "keyless.json"),
+    { path: path.join(cwd, ".clerk", "keyless.json"), format: "claim-token" },
+    { path: path.join(cwd, ".clerk", ".tmp", "keyless.json"), format: "publishable-key" },
   ];
 
-  return paths.some((breadcrumbPath) => {
+  return paths.some(({ path: breadcrumbPath, format }) => {
     if (!existsSync(breadcrumbPath)) return false;
     try {
       const breadcrumb: unknown = JSON.parse(readFileSync(breadcrumbPath, "utf8"));
-      return (
-        typeof breadcrumb === "object" &&
-        breadcrumb !== null &&
-        "publishableKey" in breadcrumb &&
+      if (typeof breadcrumb !== "object" || breadcrumb === null) return false;
+      if (format === "claim-token") {
+        return "claimToken" in breadcrumb &&
+          typeof breadcrumb.claimToken === "string" &&
+          breadcrumb.claimToken.trim().length > 0;
+      }
+      return "publishableKey" in breadcrumb &&
         typeof breadcrumb.publishableKey === "string" &&
-        breadcrumb.publishableKey === publishableKey
-      );
+        breadcrumb.publishableKey === publishableKey;
     } catch {
       return false;
     }
@@ -68,6 +70,6 @@ export function getIdentityMode(
   const secretKey = source.CLERK_SECRET_KEY;
   if (!publishableKey?.trim() || !secretKey?.trim()) return "unavailable";
 
-  if (!hasMatchingBreadcrumb(cwd, publishableKey)) return "available";
+  if (!hasUnclaimedBreadcrumb(cwd, publishableKey)) return "available";
   return canUseKeyless(source) ? "keyless-dev" : "unavailable";
 }

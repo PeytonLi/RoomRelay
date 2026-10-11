@@ -92,7 +92,10 @@ export interface ServerConfig {
   capabilities: Record<CapabilityName, CapabilityState>;
 }
 
-export function loadConfig(source: Record<string, string | undefined> = process.env): ServerConfig {
+export function loadConfig(
+  source: Record<string, string | undefined> = process.env,
+  cwd = process.cwd(),
+): ServerConfig {
   const parsed = baseSchema.safeParse(source);
   if (!parsed.success) {
     throw new ConfigError(`invalid configuration: ${parsed.error.issues.map((i) => i.path.join(".")).join(", ")}`);
@@ -115,7 +118,7 @@ export function loadConfig(source: Record<string, string | undefined> = process.
       return raw === undefined || raw.trim() === "";
     });
     if (name === "identity") {
-      capabilities.identity = { status: getIdentityMode(source), missing };
+      capabilities.identity = { status: getIdentityMode(source, cwd), missing };
     } else {
       capabilities[name] = missing.length === 0 ? { status: "available", missing: [] } : { status: "unavailable", missing };
     }
