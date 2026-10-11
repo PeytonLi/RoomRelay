@@ -17,6 +17,7 @@ class ReportJsonTest {
 
         assertEquals(report, decoded)
         val json = Json.parseToJsonElement(encoded).jsonObject
+        // v2 adds detectorModel/inference/captures for the T-007 capture pipeline.
         assertEquals(
             listOf(
                 "schemaVersion",
@@ -28,10 +29,13 @@ class ReportJsonTest {
                 "measurements",
                 "sessionLog",
                 "notes",
+                "detectorModel",
+                "inference",
+                "captures",
             ),
             json.keys.toList(),
         )
-        assertEquals(1, json["schemaVersion"]?.toString()?.toInt())
+        assertEquals(2, json["schemaVersion"]?.toString()?.toInt())
         assertEquals("null", json["sessionLog"].toString())
         assertTrue(findSensitiveKeys(json).isEmpty())
 
