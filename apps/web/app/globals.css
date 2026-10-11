@@ -174,3 +174,24 @@ button.btn:disabled { opacity: 0.45; cursor: default; }
   border-color: var(--fail);
   outline: 1px solid var(--fail);
 }
+
+.proposal-form { display: flex; flex-direction: column; gap: 8px; }
+.proposal-form label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--ink-soft); }
+.proposal-form textarea, .proposal-form input {
+  font: inherit;
+  font-size: 13px;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink);
+  resize: vertical;
+}
+.proposal-form input[aria-invalid="true"] { border-color: var(--fail); outline: 1px solid var(--fail); }
+.proposal-form button { align-self: flex-start; }
+.proposal-seller { font-size: 13px; margin-bottom: 6px; }
+.proposal-list { list-style: none; padding: 0; margin: 0 0 8px; font-size: 13px; }
+.proposal-list li { display: flex; justify-content: space-between; gap: 8px; padding: 4px 0; border-top: 1px solid var(--line); }
+.proposal-list li:first-child { border-top: 0; }
+[data-testid="proposal-result"] .verdict { font-size: 13px; padding: 7px 10px; margin-bottom: 8px; }
+[data-testid="proposal-result"] .btn { margin: 8px 0 4px; }
