@@ -269,7 +269,7 @@ export function serializePublicListing(version: {
 
 export async function listPublishedListings(prisma: PrismaClient) {
   const versions = await prisma.listingVersion.findMany({
-    where: { item: { is: { status: "ACTIVE" } } },
+    where: { item: { is: { status: "ACTIVE", NOT: { inventory: { is: { state: "SOLD" } } } } } },
     select: publicListingSelection,
     orderBy: { createdAt: "desc" },
   });
@@ -280,7 +280,7 @@ export async function listPublishedListings(prisma: PrismaClient) {
 
 export async function getPublishedListing(prisma: PrismaClient, id: string) {
   const versions = await prisma.listingVersion.findMany({
-    where: { itemId: id, item: { is: { status: "ACTIVE" } } },
+    where: { itemId: id, item: { is: { status: "ACTIVE", NOT: { inventory: { is: { state: "SOLD" } } } } } },
     select: publicListingSelection,
   });
   const version = versions.find((entry) => entry.item.publishedVersion === entry.version);

@@ -461,6 +461,9 @@ model PaymentOrder {
   operations         PaymentOperation[]
   events             PaymentEvent[]
   refund             Refund?
+  handoff            Handoff?
+  supportCases       SupportCase[]
+  orderNotes         OrderNote[]
 
   @@index([buyerId, createdAt])
   @@index([sellerId, createdAt])
@@ -546,6 +549,79 @@ model WebhookEvent {
   @@unique([environment, providerEventId])
   @@index([processingState, receivedAt])
   @@map("paypal_webhook_events")
+}
+
+// ---- T-008: order handoff, support cases and notes.
+enum HandoffState {
+  UNSCHEDULED
+  SCHEDULED
+  READY
+  BUYER_ACKNOWLEDGED
+  SELLER_ACKNOWLEDGED
+  COMPLETED
+  ISSUE_OPEN
+}
+
+enum SupportCaseReason {
+  UNAVAILABLE
+  DAMAGED
+  MISSING
+  OTHER
+}
+
+enum SupportCaseStatus {
+  OPEN
+  RESOLVED
+}
+
+model Handoff {
+  id                   String       @id @default(uuid())
+  orderId              String       @unique @map("order_id")
+  state                HandoffState @default(SCHEDULED)
+  pickupSlotStart      DateTime     @map("pickup_slot_start")
+  pickupSlotEnd        DateTime     @map("pickup_slot_end")
+  buyerAcknowledgedAt  DateTime?    @map("buyer_acknowledged_at")
+  sellerAcknowledgedAt DateTime?    @map("seller_acknowledged_at")
+  createdAt            DateTime     @default(now()) @map("created_at")
+  updatedAt            DateTime     @updatedAt @map("updated_at")
+
+  order PaymentOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@map("handoffs")
+}
+
+model SupportCase {
+  id              String            @id @default(uuid())
+  orderId         String            @map("order_id")
+  openedById      String            @map("opened_by_id")
+  openedByRole    String            @map("opened_by_role") // "BUYER" | "SELLER"
+  reason          SupportCaseReason
+  affectedItemIds String[]          @map("affected_item_ids")
+  description     String
+  status          SupportCaseStatus @default(OPEN)
+  resolutionNote  String?           @map("resolution_note")
+  resolvedById    String?           @map("resolved_by_id")
+  resolvedAt      DateTime?         @map("resolved_at")
+  createdAt       DateTime          @default(now()) @map("created_at")
+
+  order PaymentOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@map("support_cases")
+}
+
+model OrderNote {
+  id         String   @id @default(uuid())
+  orderId    String   @map("order_id")
+  authorId   String   @map("author_id")
+  authorRole String   @map("author_role") // "BUYER" | "SELLER"
+  body       String
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  order PaymentOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@map("order_notes")
 }
 
 // ---- Job queue (asset worker slice). Owned by the jobs slice; no relations
