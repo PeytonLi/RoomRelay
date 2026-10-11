@@ -1,6 +1,6 @@
 # RoomRelay build status
 
-Updated: 2026-10-10. Phase: **specification complete; application not started**. This file is the source of truth for actual progress, not a restatement of the PRD. Repository publication is being verified in the setup task; implementation must not infer any deployed service.
+Updated: 2026-10-10. Phase: **specification complete; application not started**. This file is the source of truth for actual progress, not a restatement of the PRD. The documentation is published in the verified public [PeytonLi/RoomRelay repository](https://github.com/PeytonLi/RoomRelay) on `main`; no application is deployed.
 
 ## Current evidence
 
@@ -14,6 +14,8 @@ Updated: 2026-10-10. Phase: **specification complete; application not started**.
 | Authentication source check | Complete as research | [docs/AUTH_REFERENCE.md](docs/AUTH_REFERENCE.md); actual project and tokens untested. |
 | Implementation sequence and test matrix | Complete as specification | [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md). |
 | Sources, defaults and open questions | Complete as research/planning | [docs/REFERENCES_AND_DECISIONS.md](docs/REFERENCES_AND_DECISIONS.md). |
+| Documentation integrity | Complete | 12 Markdown files, 42 internal links and the 655-word handoff checked; required IDs, UTF-8, code fences, credential/private-path patterns and Git whitespace checks passed. |
+| Public repository publication | Complete | GitHub reports PUBLIC / main; all 14 intended files are present remotely. Initial specification commit `bf4d759e539d435f0201657da5d876c8c5580738` matched the remote branch. |
 | Web app / database / worker | Not started | No application dependencies, running service or schema exists. |
 | Android scanner / real ML inference | Not started | No APK, phone test, model benchmark or inference evidence exists. |
 | 3D assets / reconstruction | Not started | No private or public scan assets were supplied/imported. |
@@ -63,4 +65,4 @@ Blocker or risk (if any):
 Next task:
 ```
 
-Initial setup produced the specifications and compact handoff only. Documentation integrity/publication checks are recorded after they complete. No feature or application test is marked successful based on a document.
+Initial setup produced and published the specifications and compact handoff only. Documentation integrity and publication were checked on 2026-10-10. No feature or application test is marked successful based on a document. The next implementation task remains T-001, followed by T-002.
