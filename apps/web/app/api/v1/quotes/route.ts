@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { buyerApproveQuote, requestQuote, sellerApproveQuote } from "@/lib/payments/quotes";
+import { requestQuote } from "@/lib/payments/quotes";
 import { parseBody, withPaymentPrincipal } from "@/lib/payments/http";
 import { quoteBody } from "@/lib/payments/http-schemas";
 

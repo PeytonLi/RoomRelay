@@ -10,6 +10,7 @@ import { LIMITS, REASON_CODES } from "./schema";
 export function sanitizeUntrusted(text: string, maxChars: number): string {
   const cleaned = text
     .normalize("NFKC")
+    // eslint-disable-next-line no-control-regex -- Untrusted input must have control characters stripped.
     .replace(/[\u0000-\u0008\u000B-\u001F\u007F\u200B-\u200F\u202A-\u202E\u2066-\u2069]/g, " ")
     .replace(/</g, "\u2039")
     .replace(/>/g, "\u203A")

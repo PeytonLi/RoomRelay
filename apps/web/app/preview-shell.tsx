@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { validateLayout, validateRoom, type Placement, type PlacedItem, type RoomGeometry } from "@roomrelay/spatial";
 import type { FrameStats, ViewerItem } from "@/lib/viewer-types";
 import Plan2D from "./plan2d";
@@ -50,6 +50,11 @@ function webglSupported(): boolean {
   }
 }
 
+let webglSupportCache: boolean | undefined;
+const getWebglSnapshot = (): boolean => (webglSupportCache ??= webglSupported());
+const subscribeToWebglSupport = () => () => {};
+const getWebglServerSnapshot = (): boolean | null => null;
+
 export default function PreviewShell() {
   const [items, setItems] = useState<ViewerItem[]>([fixtureItem]);
   const [placements, setPlacements] = useState<Record<string, Placement>>({
@@ -57,10 +62,12 @@ export default function PreviewShell() {
   });
   const [selectedId, setSelectedId] = useState<string | null>(fixtureItem.id);
   const [resetPlacements, setResetPlacements] = useState<Record<string, Placement>>({});
-  const [webgl, setWebgl] = useState<boolean | null>(null);
+  const webgl = useSyncExternalStore<boolean | null>(
+    subscribeToWebglSupport,
+    getWebglSnapshot,
+    getWebglServerSnapshot,
+  );
   const [frameStats, setFrameStats] = useState<FrameStats>({ medianMs: null });
-
-  useEffect(() => setWebgl(webglSupported()), []);
 
   const setPlacement = useCallback((itemId: string, placement: Placement) => {
     setPlacements((prev) => ({ ...prev, [itemId]: placement }));

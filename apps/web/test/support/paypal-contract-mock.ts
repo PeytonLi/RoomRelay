@@ -3,6 +3,19 @@ import type { PayPalWebhookHeaders } from "../../lib/payments/paypal/types";
 
 type CallType = "createOrder" | "getOrder" | "captureOrder" | "getCapture" | "refundCapture" | "getRefund" | "verifyWebhookSignature";
 type Fault = { mode: "network-before" | "network-after" | "http"; status?: number; issue?: string };
+type MockAmount = { currency_code: string; value: string };
+type MockPurchaseUnit = {
+  amount?: MockAmount;
+  payee?: { merchant_id?: string };
+  reference_id?: string;
+  custom_id?: string;
+  invoice_id?: string;
+  payments?: { captures?: MockCapture[] };
+};
+type MockRequestBody = {
+  purchase_units?: MockPurchaseUnit[];
+  amount?: MockAmount;
+};
 
 type MockCapture = {
   id: string;
@@ -15,7 +28,7 @@ type MockCapture = {
 type MockOrder = {
   id: string;
   status: "CREATED" | "APPROVED" | "COMPLETED" | "PAYER_ACTION_REQUIRED";
-  purchase_units: Array<Record<string, any>>;
+  purchase_units: MockPurchaseUnit[];
   links: Array<{ rel: string; href: string }>;
   debugId: string;
 };
@@ -190,7 +203,7 @@ export class PayPalContractMock {
   }
 
   private async dispatch(call: CallType, path: string, init: RequestInit, requestId?: string): Promise<Response> {
-    const body = init.body ? JSON.parse(String(init.body)) as Record<string, any> : {};
+    const body = init.body ? JSON.parse(String(init.body)) as MockRequestBody : {};
     if (call === "createOrder") {
       const key = `createOrder:${requestId}`;
       let id = this.idempotency.get(key);
@@ -198,7 +211,7 @@ export class PayPalContractMock {
         this.orderCount += 1;
         id = `MOCK-ORDER-${this.orderCount}`;
         this.idempotency.set(key, id);
-        const purchase = structuredClone(body.purchase_units?.[0] ?? {});
+        const purchase: MockPurchaseUnit = structuredClone(body.purchase_units?.[0] ?? {});
         const tamper = this.tamper.createOrder;
         if (tamper?.amountValue && purchase.amount) purchase.amount.value = tamper.amountValue;
         if (tamper?.merchantId && purchase.payee) purchase.payee.merchant_id = tamper.merchantId;
@@ -236,10 +249,10 @@ export class PayPalContractMock {
           status: this.captureOutcome,
           amount: {
             currency_code: "USD",
-            value: tamper?.amountValue ?? unit.amount.value,
+            value: tamper?.amountValue ?? unit.amount!.value,
           },
-          custom_id: unit.custom_id,
-          invoice_id: unit.invoice_id,
+          custom_id: unit.custom_id!,
+          invoice_id: unit.invoice_id!,
         };
         delete this.tamper.captureOrder;
         this.captures.set(captureId, capture);
@@ -266,7 +279,7 @@ export class PayPalContractMock {
         this.refunds.set(id, {
           id,
           status: this.refundOutcome,
-          amount: body.amount,
+          amount: body.amount!,
           debugId: "MOCK-REFUND-DEBUG",
         });
       }

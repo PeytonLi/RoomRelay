@@ -16,12 +16,43 @@ export interface BuildGlbOptions {
   chunks?: RawChunk[];
 }
 
+type NonEmpty<T> = [T, ...T[]];
+type FixtureJson = Record<string, unknown> & {
+  asset: Record<string, unknown> & { version: string };
+  buffers: NonEmpty<Record<string, unknown> & { byteLength?: number; uri?: string }>;
+  bufferViews: NonEmpty<Record<string, unknown> & { buffer: number; byteOffset: number; byteLength: number }>;
+  images: NonEmpty<Record<string, unknown> & { bufferView?: number; uri?: string; mimeType?: string }>;
+  materials: NonEmpty<Record<string, unknown> & {
+    pbrMetallicRoughness: Record<string, unknown> & {
+      baseColorTexture: Record<string, unknown> & { index: number };
+    };
+  }>;
+  textures: NonEmpty<Record<string, unknown> & { source: number }>;
+  meshes: NonEmpty<Record<string, unknown> & {
+    primitives: NonEmpty<Record<string, unknown> & {
+      attributes: Record<string, number>;
+      indices: number;
+      material: number;
+      mode?: number;
+    }>;
+  }>;
+  accessors: NonEmpty<Record<string, unknown> & {
+    bufferView: number;
+    componentType: number;
+    count: number;
+    type: string;
+    min?: number[];
+    max?: number[];
+  }>;
+  nodes: NonEmpty<Record<string, unknown> & { mesh?: number; children?: number[] }>;
+};
+
 export interface ValidGlbOptions {
   width?: number;
   height?: number;
   imageFormat?: "png" | "jpeg";
   imageMimeType?: string;
-  mutateJson?: (json: Record<string, any>) => void;
+  mutateJson?: (json: FixtureJson) => void;
 }
 
 export function buildGlb(
@@ -103,7 +134,7 @@ export function validGlb(options: ValidGlbOptions = {}): Uint8Array {
   [0, 1, 2].forEach((value, index) => binaryView.setUint16(36 + index * 2, value, true));
   binary.set(image, imageOffset);
 
-  const json: Record<string, any> = {
+  const json: FixtureJson = {
     asset: { version: "2.0" },
     scene: 0,
     scenes: [{ nodes: [0] }],

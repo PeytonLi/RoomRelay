@@ -50,7 +50,9 @@ export default function SellClient() {
   }
 
   useEffect(() => {
-    void refreshItems();
+    // Defer so the post-fetch setState doesn't run synchronously in the effect.
+    const timer = setTimeout(() => void refreshItems(), 0);
+    return () => clearTimeout(timer);
   }, []);
 
   async function submit(event: FormEvent<HTMLFormElement>) {

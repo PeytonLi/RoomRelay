@@ -6,7 +6,7 @@ const tinyPng = Buffer.from(
 );
 const exactAddress = "123 Private Street, Secret City";
 
-test("inventory pages report unavailable identity without a cookie", async ({ page, request, baseURL }) => {
+test("inventory pages report unavailable identity without a cookie", async ({ page, request }) => {
   const response = await request.get("/api/v1/rooms");
   expect(response.status()).toBe(503);
   expect((await response.json()).code).toBe("IDENTITY_UNAVAILABLE");

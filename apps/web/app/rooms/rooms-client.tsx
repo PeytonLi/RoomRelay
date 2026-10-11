@@ -26,7 +26,9 @@ export default function RoomsClient({ initialGeometry }: { initialGeometry: stri
   }
 
   useEffect(() => {
-    void refreshRooms();
+    // Defer so the post-fetch setState doesn't run synchronously in the effect.
+    const timer = setTimeout(() => void refreshRooms(), 0);
+    return () => clearTimeout(timer);
   }, []);
 
   async function submit(event: FormEvent<HTMLFormElement>) {

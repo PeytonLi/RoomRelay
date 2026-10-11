@@ -30,6 +30,7 @@ function jsonRequest(body: unknown): Request {
   });
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- JSON shape varies per endpoint; call sites annotate when they need a type.
 async function responseJson<T = Record<string, any>>(response: Response): Promise<T> {
   return response.json() as Promise<T>;
 }
