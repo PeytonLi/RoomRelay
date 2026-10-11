@@ -1,36 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { GlbError, inspectGlb } from "./inspectGlb";
-
-/** Build a minimal GLB in-memory: one JSON chunk plus an optional BIN chunk. */
-function buildGlb(json: unknown, bin?: Uint8Array): Uint8Array {
-  const enc = new TextEncoder();
-  let jsonBytes = enc.encode(JSON.stringify(json));
-  const jsonPad = (4 - (jsonBytes.length % 4)) % 4;
-  const padded = new Uint8Array(jsonBytes.length + jsonPad);
-  padded.set(jsonBytes);
-  padded.fill(0x20, jsonBytes.length);
-  jsonBytes = padded;
-
-  const binChunk = bin ?? new Uint8Array(0);
-  const binPad = (4 - (binChunk.length % 4)) % 4;
-  const binLen = bin ? binChunk.length + binPad : 0;
-  const total = 12 + 8 + jsonBytes.length + (bin ? 8 + binLen : 0);
-  const out = new Uint8Array(total);
-  const dv = new DataView(out.buffer);
-  dv.setUint32(0, 0x46546c67, true); // glTF
-  dv.setUint32(4, 2, true);
-  dv.setUint32(8, total, true);
-  dv.setUint32(12, jsonBytes.length, true);
-  dv.setUint32(16, 0x4e4f534a, true);
-  out.set(jsonBytes, 20);
-  if (bin) {
-    const off = 20 + jsonBytes.length;
-    dv.setUint32(off, binLen, true);
-    dv.setUint32(off + 4, 0x004e4942, true);
-    out.set(binChunk, off + 8);
-  }
-  return out;
-}
+import { buildGlb } from "./testing/glbFixtures";
 
 const baseJson = {
   scene: 0,
