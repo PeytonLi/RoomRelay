@@ -20,12 +20,13 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -46,10 +47,18 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import com.roomrelay.app.core.PROTOCOL_CONDITIONS
+import com.roomrelay.app.core.TRIALS_PER_CONDITION
+import com.roomrelay.app.core.TrialDistance
+import com.roomrelay.app.core.TrialSurface
+import com.roomrelay.app.core.displayName
+import com.roomrelay.app.core.formatCm
 import com.roomrelay.app.core.formatMeters
 import com.roomrelay.app.core.formatSignedCm
 import com.roomrelay.app.core.formatSignedPct
 import com.roomrelay.app.core.parseTapeCm
+import com.roomrelay.app.core.summarizeTrials
+import java.util.Locale
 
 class MainActivity : ComponentActivity() {
     private lateinit var controller: ProbeController
@@ -112,7 +121,7 @@ private fun RoomRelayProbeApp(
             },
         ) { padding ->
             Column(Modifier.fillMaxSize().padding(padding)) {
-                TabRow(selectedTabIndex = selectedTab) {
+                PrimaryTabRow(selectedTabIndex = selectedTab) {
                     tabLabels.forEachIndexed { index, label ->
                         Tab(
                             selected = selectedTab == index,
@@ -213,6 +222,8 @@ private fun MeasureScreen(
 ) {
     var label by rememberSaveable { mutableStateOf("") }
     var tapeText by rememberSaveable { mutableStateOf("") }
+    var surface by rememberSaveable { mutableStateOf(TrialSurface.FLOOR) }
+    var nominalDistance by rememberSaveable { mutableStateOf(TrialDistance.NEAR_1M) }
     val measure = state.measure
     val tapeValid = parseTapeCm(tapeText) != null
 
@@ -270,12 +281,32 @@ private fun MeasureScreen(
                 Button(onClick = onRequestCameraPermission) { Text("Allow camera") }
             }
             measure.message.takeIf(String::isNotBlank)?.let { Text(it, color = Color(0xFFFFD180)) }
+            Text("Surface", color = Color.White, style = MaterialTheme.typography.bodySmall)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TrialSurface.values().forEach { option ->
+                    FilterChip(
+                        selected = surface == option,
+                        onClick = { surface = option },
+                        label = { Text(option.displayName()) },
+                    )
+                }
+            }
+            Text("Distance", color = Color.White, style = MaterialTheme.typography.bodySmall)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TrialDistance.values().forEach { option ->
+                    FilterChip(
+                        selected = nominalDistance == option,
+                        onClick = { nominalDistance = option },
+                        label = { Text(option.displayName()) },
+                    )
+                }
+            }
             OutlinedTextField(
                 value = label,
                 onValueChange = { label = it },
                 modifier = Modifier.fillMaxWidth(),
                 label = { Text("Measurement label") },
-                placeholder = { Text("floor ~1 m") },
+                placeholder = { Text("Floor · ~1 m · trial 1") },
                 singleLine = true,
             )
             OutlinedTextField(
@@ -293,7 +324,7 @@ private fun MeasureScreen(
                             tapeValid &&
                             measure.pairId != state.lastSavedPairId,
                     onClick = {
-                        controller.saveTrial(tapeText, label)
+                        controller.saveTrial(tapeText, label, surface, nominalDistance)
                         tapeText = ""
                         label = ""
                     },
@@ -322,6 +353,16 @@ private fun MeasureScreen(
                     }
                 }
             }
+            Text(
+                "Protocol: " + PROTOCOL_CONDITIONS.joinToString(" · ") { (conditionSurface, distance) ->
+                    val count = state.trials.count {
+                        it.surface == conditionSurface && it.nominalDistance == distance
+                    }
+                    "${conditionSurface.displayName()} ${distance.displayName()} $count/$TRIALS_PER_CONDITION"
+                },
+                color = Color.White,
+                style = MaterialTheme.typography.bodySmall,
+            )
             if (state.trials.isNotEmpty()) {
                 Text("Trials", color = Color.White, fontWeight = FontWeight.SemiBold)
                 state.trials.forEach { trial ->
@@ -332,7 +373,12 @@ private fun MeasureScreen(
                         Column(Modifier.weight(1f)) {
                             Text("${trial.index}. ${trial.label}", color = Color.White)
                             Text(
-                                "AR ${formatMeters(trial.arcoreM)} · tape ${trial.tapeCm} cm · " +
+                                "${trial.surface.displayName()} · ${trial.nominalDistance.displayName()}",
+                                color = Color.White,
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                            Text(
+                                "AR ${formatMeters(trial.arcoreM)} · tape ${formatCm(trial.tapeCm)} · " +
                                     "${formatSignedCm(trial.errorCm)} (${formatSignedPct(trial.errorPct)})",
                                 color = Color.White,
                                 style = MaterialTheme.typography.bodySmall,
@@ -354,6 +400,16 @@ private fun ReportScreen(state: ProbeUiState, controller: ProbeController) {
     ) {
         Text("Probe report", style = MaterialTheme.typography.headlineSmall)
         Text("Measurements: ${state.trials.size}")
+        Text("Measurement summary", fontWeight = FontWeight.SemiBold)
+        summarizeTrials(state.trials).forEach { summary ->
+            Text(
+                "${summary.surface.displayName()} ${summary.nominalDistance.displayName()} · " +
+                    "n=${summary.count} · mean ${formatSignedCm(summary.meanErrorCm)} · " +
+                    "mean |cm| ${formatCm(summary.meanAbsErrorCm)} · " +
+                    "max |cm| ${formatCm(summary.maxAbsErrorCm)} · " +
+                    "mean |%| ${formatAbsPct(summary.meanAbsErrorPct)}",
+            )
+        }
         Text("Camera configs: ${state.capability.cameraConfigs.size}")
         Text("AR services: ${if (state.capability.arServicesInstalled) "installed" else "not detected"}")
         Text("Session log: ${state.sessionLog?.samples?.size ?: 0} populated seconds")
@@ -382,6 +438,8 @@ private fun ReportScreen(state: ProbeUiState, controller: ProbeController) {
         )
     }
 }
+
+private fun formatAbsPct(percent: Double): String = String.format(Locale.ROOT, "%.1f %%", percent)
 
 @Composable
 private fun ErrorText(text: String) {

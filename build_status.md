@@ -17,7 +17,7 @@ Updated: 2026-10-11. Phase: **M0 in progress: web foundation and synthetic viewe
 | Documentation integrity | Complete | 12 Markdown files, 42 internal links and the 655-word handoff checked; required IDs, UTF-8, code fences, credential/private-path patterns and Git whitespace checks passed. |
 | Public repository publication | Complete | GitHub reports PUBLIC / main; all 14 intended files are present remotely. Initial specification commit `bf4d759e539d435f0201657da5d876c8c5580738` matched the remote branch. |
 | Web app / database / worker | IN_PROGRESS (PR #1) | Next.js 16 web app, Prisma 7 baseline migration, capability-aware env config, `/api/health`. Verified locally against native PostgreSQL 18 on a Windows VM; not deployed. No worker yet. |
-| Android scanner / real ML inference | Not started | No APK, phone test, model benchmark or inference evidence exists. |
+| Android S24 probe (T-002) / real ML inference | Probe merged ([PR #6](https://github.com/PeytonLi/RoomRelay/pull/6)); protocol/CI follow-up in review; device run unrun | `apps/android` ARCore capability + tape-length probe builds, 16 JVM tests and lint pass locally; CI `android` job publishes the debug APK. Never run on an S24 or any ARCore device; no detection model or inference exists. |
 | 3D assets / reconstruction | IN_PROGRESS (PR #1) | Synthetic measured room fixture plus the public Khronos SheenChair (CC0, `APPROXIMATE_PROXY`, pinned SHA-256) in an interactive Three.js + 2D viewer with live fit checks and local GLB import. No real room or item scan has been imported yet. No reconstruction service exists. |
 | Asset validation / job queue | IN_PROGRESS (in review) | CPU slice only: `validateGlb` + `buildAssetManifest` (packages/assets), Postgres leased `Job` queue (packages/jobs), `asset.validate` local-filesystem worker (workers/assets). Not wired to uploads or the Asset model; no S3, thumbnails, conversion or optimization. |
 | PayPal / identity / cloud accounts | T-006 sandbox REST app and merchant configured; webhook and Clerk not configured | The T-006 sandbox transaction is evidenced below; no public webhook endpoint/subscription/ID or Clerk identity is configured. |
@@ -25,11 +25,21 @@ Updated: 2026-10-11. Phase: **M0 in progress: web foundation and synthetic viewe
 
 ## Next assignment
 
-**Immediate T-006 follow-up:** T-006 is `IN_REVIEW` ([PR #7](https://github.com/PeytonLi/RoomRelay/pull/7)) and the real sandbox capture/full refund are evidenced below. The remaining payment setup is a public HTTPS URL, a subscribed PayPal webhook, and `PAYPAL_WEBHOOK_ID`; real webhook delivery remains untested. Clerk identity is also needed before authenticated API routes can become available. After the payment follow-up, continue **T-002: S24 capture/export feasibility**. An ARCore capability and two-point tape-measurement probe APK is being built in a separate PR. It needs a physical Galaxy S24 run to produce evidence. After that, **import one tape-measured RealityScan/Scaniverse room and one item** through the viewer's local GLB path to complete M1 with real assets.
+**Immediate T-006 follow-up:** T-006 is `IN_REVIEW` ([PR #7](https://github.com/PeytonLi/RoomRelay/pull/7)) and the real sandbox capture/full refund are evidenced below. The remaining payment setup is a public HTTPS URL, a subscribed PayPal webhook, and `PAYPAL_WEBHOOK_ID`; real webhook delivery remains untested. Clerk identity is also needed before authenticated API routes can become available. After the payment follow-up, continue **T-002: S24 capture/export feasibility**. The ARCore capability and two-point tape-measurement probe is merged ([PR #6](https://github.com/PeytonLi/RoomRelay/pull/6)); the owner's S24 run (capability, 3 trials per floor/table-edge x ~1 m/~3 m, 60 s log, JSON export) is the remaining T-002 device evidence. After that, **import one tape-measured RealityScan/Scaniverse room and one item** through the viewer's local GLB path to complete M1 with real assets.
 
 Owner: Devin (sessions https://app.devin.ai/sessions/a547e324f36d44d2ab61b3dd8d5494b9 and https://app.devin.ai/sessions/4a04b75b08da42f4b39555ced7549560 for Android).
 
 ## Session log
+
+```text
+Date / task / owner: 2026-10-11 / T-002 probe follow-up / Devin (session https://app.devin.ai/sessions/4a04b75b08da42f4b39555ced7549560)
+State and user-visible result: IN_REVIEW. PR #6 probe merged. Follow-up: each tape trial records surface (FLOOR/TABLE_EDGE/OTHER) and nominal distance (NEAR_1M/FAR_3M/OTHER); the Measure tab shows protocol progress (3 trials per floor/table-edge x ~1 m/~3 m); the report (schemaVersion 2) adds measurementSummary per condition (count, mean signed cm, mean |cm|, max |cm|, mean |%|). compileSdk 37 (targetSdk stays 36) with Compose BOM 2026.09.00, core-ktx 1.19.1, lifecycle 2.11.0. CI gains an `android` job that uploads app-debug.apk.
+Files and commit: apps/android/** and .github/workflows/ci.yml (new `android` job; `build-test` unchanged); branch devin/1791697395-android-probe-improvements, commit 4180369.
+Checks actually run and results: `./gradlew :app:assembleDebug :app:testDebugUnitTest :app:lintDebug` BUILD SUCCESSFUL on the Windows VM; JVM tests 16/16 (HitSelectionPolicy 4, MeasurementMath 4, MeasurementSummary 3, ReportJson 1, SessionLogger 4); lint 0 errors, 3 warnings (LockedOrientationActivity, DiscouragedApi for the intentional portrait lock; OldTargetApi for targetSdk 36); no kotlinc warnings; debug APK 12,797,296 bytes.
+Requirements satisfied / remaining: T-002 known-length comparison is now structured per condition. Remaining: the physical S24 run and JSON export; the Android capture-tool room/item export and import comparison.
+Blocker or risk (if any): No ARCore device or accelerated emulator on the build VM, so nothing has run on-device.
+Next task: Owner runs the probe APK on the S24 and shares the JSON report; then import one tape-measured room and one item through the viewer GLB path.
+```
 
 ```text
 Date / task / owner: 2026-10-11 / T-006 TEST-08/09/10 coverage follow-up / Devin
