@@ -97,6 +97,7 @@ model Room {
   revisions RoomRevision[]
   layouts   LayoutRevision[]
   assets    Asset[]
+  quotes    Quote[]
 
   @@map("rooms")
 }
@@ -357,6 +358,7 @@ model Quote {
 
   previousQuote Quote?          @relation("QuoteRevisions", fields: [previousQuoteId], references: [id], onDelete: SetNull)
   nextQuotes    Quote[]         @relation("QuoteRevisions")
+  room          Room?           @relation(fields: [roomId], references: [id], onDelete: SetNull)
   lines         QuoteLine[]
   holds         InventoryHold[]
   orders        PaymentOrder[]
@@ -390,7 +392,7 @@ model ItemInventory {
   state     InventoryState @default(AVAILABLE)
   holdId    String?        @map("hold_id")
   version   Int            @default(0)
-  updatedAt DateTime       @updatedAt @map("updated_at")
+  updatedAt DateTime       @default(now()) @updatedAt @map("updated_at")
   item      Item           @relation(fields: [itemId], references: [id], onDelete: Cascade)
   hold      InventoryHold? @relation("InventoryHoldOwner", fields: [holdId], references: [id], onDelete: Restrict)
 
