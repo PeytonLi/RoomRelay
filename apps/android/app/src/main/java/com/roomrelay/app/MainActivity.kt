@@ -9,6 +9,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -38,15 +40,19 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import com.roomrelay.app.core.capture.CaptureAxis
+import com.roomrelay.app.core.capture.DimensionSource
 import com.roomrelay.app.core.PROTOCOL_CONDITIONS
 import com.roomrelay.app.core.TRIALS_PER_CONDITION
 import com.roomrelay.app.core.TrialDistance
@@ -56,6 +62,7 @@ import com.roomrelay.app.core.formatCm
 import com.roomrelay.app.core.formatMeters
 import com.roomrelay.app.core.formatSignedCm
 import com.roomrelay.app.core.formatSignedPct
+import com.roomrelay.app.core.inference.RoomRelayCategory
 import com.roomrelay.app.core.parseTapeCm
 import com.roomrelay.app.core.summarizeTrials
 import java.util.Locale
@@ -105,13 +112,17 @@ private fun RoomRelayProbeApp(
 ) {
     val state by controller.state.collectAsState()
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
-    val tabLabels = listOf("Capability", "Measure", "Report")
+    val tabLabels = listOf("Capability", "Detect", "Measure", "Items", "Report")
 
     LaunchedEffect(selectedTab) {
-        controller.setMeasureVisible(selectedTab == 1)
+        controller.setMeasureVisible(selectedTab == 2)
+        controller.setDetectVisible(selectedTab == 1)
     }
     DisposableEffect(Unit) {
-        onDispose { controller.setMeasureVisible(false) }
+        onDispose {
+            controller.setMeasureVisible(false)
+            controller.setDetectVisible(false)
+        }
     }
 
     MaterialTheme(colorScheme = darkColorScheme()) {
@@ -136,11 +147,17 @@ private fun RoomRelayProbeApp(
                         controller = controller,
                         onRequestCameraPermission = onRequestCameraPermission,
                     )
-                    1 -> MeasureScreen(
+                    1 -> DetectScreen(
                         state = state,
                         controller = controller,
                         onRequestCameraPermission = onRequestCameraPermission,
                     )
+                    2 -> MeasureScreen(
+                        state = state,
+                        controller = controller,
+                        onRequestCameraPermission = onRequestCameraPermission,
+                    )
+                    3 -> ItemsScreen(state = state, controller = controller)
                     else -> ReportScreen(state = state, controller = controller)
                 }
             }
@@ -393,6 +410,269 @@ private fun MeasureScreen(
 }
 
 @Composable
+private fun DetectScreen(
+    state: ProbeUiState,
+    controller: ProbeController,
+    onRequestCameraPermission: () -> Unit,
+) {
+    val detect = state.detect
+    Box(Modifier.fillMaxSize().background(Color.Black)) {
+        AndroidView(
+            factory = { controller.createGlView() },
+            modifier = Modifier.fillMaxSize(),
+            onRelease = controller::releaseGlView,
+        )
+        // transformCoordinates2d already returns view pixels and DrawScope
+        // draws in pixels, so boxes line up 1:1 with the GLSurfaceView.
+        androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
+            detect.overlayBoxes.forEach { box ->
+                val color = when {
+                    box.ambiguous -> Color(0xFFFFA726)
+                    box.category != null -> Color(0xFF66BB6A)
+                    else -> Color(0xFF78909C)
+                }
+                drawRect(
+                    color = color,
+                    topLeft = androidx.compose.ui.geometry.Offset(
+                        box.viewRect.left,
+                        box.viewRect.top,
+                    ),
+                    size = androidx.compose.ui.geometry.Size(
+                        box.viewRect.width(),
+                        box.viewRect.height(),
+                    ),
+                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = 3f),
+                )
+            }
+        }
+        Column(
+            Modifier.align(Alignment.TopCenter)
+                .fillMaxWidth()
+                .background(Color(0xCC101820))
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(3.dp),
+        ) {
+            Text(detect.statusLine, color = Color.White, fontWeight = FontWeight.SemiBold)
+            Text(
+                "Tracking ${detect.trackingState} · thermal ${detect.thermalStatus} · " +
+                    "${"%.1f".format(detect.achievedFps)} inf/s · " +
+                    "p50 ${detect.latencyP50Ms?.let { "%.0f ms".format(it) } ?: "—"}",
+                color = Color.White,
+            )
+            Text(
+                "Candidates ${detect.stableCount} stable · " +
+                    "${detect.ambiguousCount} ambiguous · ${detect.tentativeCount} tentative",
+                color = Color.White,
+            )
+            detect.overlayBoxes.forEach { box ->
+                Text(
+                    "${box.category?.name ?: box.cocoLabel} ${(box.score * 100).toInt()}%" +
+                        if (box.ambiguous) " · several similar items — tap the one you mean" else "",
+                    color = if (box.ambiguous) Color(0xFFFFA726) else Color(0xFF66BB6A),
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            if (state.capability.cameraPermission != "GRANTED") {
+                Button(onClick = onRequestCameraPermission) { Text("Allow camera") }
+            }
+            detect.message.takeIf(String::isNotBlank)?.let {
+                Text(it, color = Color(0xFFFFD180))
+            }
+        }
+        state.ask?.let { ask ->
+            Column(
+                Modifier.align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .background(Color(0xF2101820))
+                    .padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(ask.prompt, color = Color.White, style = MaterialTheme.typography.titleMedium)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ask.candidateIds.forEach { id ->
+                        OutlinedButton(onClick = { controller.resolveAskSame(id) }) {
+                            Text("Same as item $id")
+                        }
+                    }
+                    Button(onClick = controller::resolveAskNew) { Text("New item") }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ItemsScreen(state: ProbeUiState, controller: ProbeController) {
+    var manualText by rememberSaveable { mutableStateOf("") }
+    var manualCategory by rememberSaveable { mutableStateOf(RoomRelayCategory.OTHER.name) }
+    val dimTexts = remember { mutableStateOf(mutableMapOf<String, String>()) }
+
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        state.syncBanner?.let { banner ->
+            Card(Modifier.fillMaxWidth()) {
+                Text(
+                    banner,
+                    modifier = Modifier.padding(12.dp),
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+        }
+        Text("Captured items", style = MaterialTheme.typography.headlineSmall)
+        Text(
+            "The model can see: " +
+                com.roomrelay.app.core.inference.MODEL_DETECTABLE_CATEGORIES
+                    .joinToString(", ") { it.name.lowercase() } +
+                ". Other furniture needs a manual label.",
+            style = MaterialTheme.typography.bodySmall,
+        )
+        // Selectable category list — free text here silently mapped typos to
+        // OTHER. Model-detectable categories are marked; manual-only ones
+        // still need a typed label below.
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            RoomRelayCategory.entries.forEach { category ->
+                val modelDetectable =
+                    category in com.roomrelay.app.core.inference.MODEL_DETECTABLE_CATEGORIES
+                FilterChip(
+                    selected = manualCategory == category.name,
+                    onClick = { manualCategory = category.name },
+                    label = {
+                        Text(
+                            category.name.lowercase() +
+                                if (modelDetectable) " (model can detect)" else "",
+                        )
+                    },
+                )
+            }
+        }
+        OutlinedTextField(
+            value = manualText,
+            onValueChange = { manualText = it },
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text("Label (optional)") },
+            singleLine = true,
+        )
+        Button(onClick = {
+            controller.addManualItem(RoomRelayCategory.valueOf(manualCategory), manualText)
+            manualText = ""
+        }) {
+            Text("Add item manually")
+        }
+        state.drafts.forEach { draft ->
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        "${draft.kind} draft ${draft.clientCaptureId.take(8)} · " +
+                            "${draft.items.size} item(s)",
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    draft.items.forEach { item ->
+                        Text(
+                            "Item ${item.localId}: ${item.category.name.lowercase()}" +
+                                (item.freeTextLabel?.let { " ($it)" } ?: "") +
+                                (item.categoryCocoLabel?.let {
+                                    " · detected '$it' ${((item.categoryScore ?: 0f) * 100).toInt()}%"
+                                } ?: " · manual"),
+                        )
+                        CaptureAxis.entries.forEach { axis ->
+                            val key = "${draft.clientCaptureId}:${item.localId}:${axis.name}"
+                            val existing = item.dimensions.firstOrNull { it.axis == axis }
+                            Row(
+                                Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                OutlinedTextField(
+                                    value = dimTexts.value[key] ?: "",
+                                    onValueChange = {
+                                        dimTexts.value = dimTexts.value.toMutableMap().apply {
+                                            put(key, it)
+                                        }
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                    label = { Text("${axis.name.lowercase()} (cm)") },
+                                    keyboardOptions =
+                                        KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                    singleLine = true,
+                                )
+                                TextButton(onClick = {
+                                    controller.setItemDimensionCm(
+                                        draft.clientCaptureId,
+                                        item.localId,
+                                        axis,
+                                        dimTexts.value[key] ?: "",
+                                    )
+                                }) { Text("Save") }
+                            }
+                            Text(
+                                existing?.let {
+                                    "${axis.name.lowercase()}: ${formatCm(it.valueM * 100)} " +
+                                        "(${if (it.source == DimensionSource.ARCORE_ESTIMATED) "AR estimate" else "typed"}, confirmed)"
+                                } ?: "${axis.name.lowercase()}: not measured",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+                        val arDistanceCm = state.measure.distanceMeters?.let { it * 100.0 }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            CaptureAxis.entries.forEach { axis ->
+                                OutlinedButton(
+                                    enabled = state.measure.hasBothAnchors && arDistanceCm != null,
+                                    onClick = {
+                                        controller.confirmArEstimateDimension(
+                                            draft.clientCaptureId,
+                                            item.localId,
+                                            axis,
+                                        )
+                                    },
+                                ) {
+                                    Text(
+                                        if (arDistanceCm != null) {
+                                            "Use AR ${formatCm(arDistanceCm)} as ${axis.name.lowercase()}"
+                                        } else {
+                                            "AR ${axis.name.lowercase()}"
+                                        },
+                                    )
+                                }
+                            }
+                        }
+                        if (!state.measure.hasBothAnchors) {
+                            Text(
+                                "Set two points on the Measure tab",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = { controller.queueUpload(draft.clientCaptureId) }) {
+                            Text("Queue upload")
+                        }
+                        OutlinedButton(onClick = { controller.deleteDraft(draft.clientCaptureId) }) {
+                            Text("Delete")
+                        }
+                    }
+                }
+            }
+        }
+        if (state.uploadJobs.isNotEmpty()) {
+            Text("Upload queue", fontWeight = FontWeight.SemiBold)
+            state.uploadJobs.forEach { job ->
+                Text("Job ${job.jobId.take(8)}: ${controller.uploadStatusText(job)}")
+            }
+            Button(onClick = controller::syncNow) { Text("Sync now") }
+        }
+        state.queueMessage.takeIf(String::isNotBlank)?.let { Text(it) }
+        Text(
+            "No detection box ever becomes a dimension. Only typed tape values " +
+                "and confirmed two-point measurements count.",
+            style = MaterialTheme.typography.bodySmall,
+        )
+    }
+}
+
+@Composable
 private fun ReportScreen(state: ProbeUiState, controller: ProbeController) {
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
@@ -413,6 +693,12 @@ private fun ReportScreen(state: ProbeUiState, controller: ProbeController) {
         Text("Camera configs: ${state.capability.cameraConfigs.size}")
         Text("AR services: ${if (state.capability.arServicesInstalled) "installed" else "not detected"}")
         Text("Session log: ${state.sessionLog?.samples?.size ?: 0} populated seconds")
+        Text(
+            "Detection: ${"%.1f".format(state.detect.achievedFps)} inf/s · " +
+                "p50 ${state.detect.latencyP50Ms?.let { "%.0f ms".format(it) } ?: "—"} · " +
+                "${state.detect.stableCount} stable candidates",
+        )
+        Text("Draft captures: ${state.drafts.size} · queued uploads: ${state.uploadJobs.size}")
         state.sessionLog?.let {
             Text(
                 "End: ${it.endReason} · target ${it.durationTargetS}s · " +

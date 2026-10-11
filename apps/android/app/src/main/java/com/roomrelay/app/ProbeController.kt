@@ -19,24 +19,53 @@ import androidx.core.net.toUri
 import androidx.core.content.pm.PackageInfoCompat
 import androidx.activity.ComponentActivity
 import android.opengl.GLSurfaceView
+import com.google.ar.core.Anchor
 import com.google.ar.core.ArCoreApk
 import com.google.ar.core.CameraConfig
 import com.google.ar.core.CameraConfigFilter
 import com.google.ar.core.Config
 import com.google.ar.core.Session
+import com.google.ar.core.TrackingState
 import com.roomrelay.app.core.AppInfo
 import com.roomrelay.app.core.CameraConfigInfo
 import com.roomrelay.app.core.Capabilities
+import com.roomrelay.app.core.DetectorModelInfo
 import com.roomrelay.app.core.DeviceInfo
 import com.roomrelay.app.core.MeasurementTrial
 import com.roomrelay.app.core.ProbeReport
 import com.roomrelay.app.core.SessionLogger
+import com.roomrelay.app.core.Vec3
+import com.roomrelay.app.core.association.ConfirmedItemRegistry
+import com.roomrelay.app.core.association.MergeDecision
+import com.roomrelay.app.core.capture.CaptureAnchor
+import com.roomrelay.app.core.capture.CaptureAxis
+import com.roomrelay.app.core.capture.CaptureDevice
+import com.roomrelay.app.core.capture.CaptureDraftStore
+import com.roomrelay.app.core.capture.CaptureKind
+import com.roomrelay.app.core.capture.CaptureSession
+import com.roomrelay.app.core.capture.CapturedItem
+import com.roomrelay.app.core.capture.DetectionEvidence
+import com.roomrelay.app.core.capture.DimensionMeasurement
+import com.roomrelay.app.core.capture.DimensionSource
+import com.roomrelay.app.core.capture.validateForUpload
 import com.roomrelay.app.core.TrialDistance
 import com.roomrelay.app.core.TrialSurface
 import com.roomrelay.app.core.computeError
 import com.roomrelay.app.core.displayName
 import com.roomrelay.app.core.encodeReport
+import com.roomrelay.app.core.inference.RoomRelayCategory
+import com.roomrelay.app.core.inference.ThermalStatus
 import com.roomrelay.app.core.parseTapeCm
+import com.roomrelay.app.core.sync.FileUploadQueueStore
+import com.roomrelay.app.core.sync.SyncConfig
+import com.roomrelay.app.core.sync.UnavailableAuthTokenProvider
+import com.roomrelay.app.core.sync.UploadClient
+import com.roomrelay.app.core.sync.UploadJob
+import com.roomrelay.app.core.sync.UploadStatus
+import java.util.UUID
+import java.util.concurrent.Executors
+import kotlinx.serialization.json.Json
+import okhttp3.OkHttpClient
 import com.roomrelay.app.core.summarizeTrials
 import java.io.File
 import java.text.SimpleDateFormat
@@ -68,9 +97,30 @@ internal data class CapabilitySnapshot(
     val configureErrorMessage: String? = null,
 )
 
+internal data class DetectUiState(
+    val overlayBoxes: List<OverlayBox> = emptyList(),
+    val statusLine: String = "Detection starts when the camera is running.",
+    val message: String = "",
+    val thermalStatus: String = "NONE",
+    val inferencePaused: Boolean = false,
+    val trackingState: String = "STOPPED",
+    val achievedFps: Double = 0.0,
+    val latencyP50Ms: Double? = null,
+    val tentativeCount: Int = 0,
+    val stableCount: Int = 0,
+    val ambiguousCount: Int = 0,
+)
+
+/** Merge question shown to the user when association is uncertain. */
+internal data class AskState(
+    val candidateIds: List<Long>,
+    val prompt: String,
+)
+
 internal data class ProbeUiState(
     val capability: CapabilitySnapshot = CapabilitySnapshot(),
     val measure: MeasureSnapshot = MeasureSnapshot(),
+    val detect: DetectUiState = DetectUiState(),
     val trials: List<MeasurementTrial> = emptyList(),
     val lastSavedPairId: Long? = null,
     val notes: String = "",
@@ -79,6 +129,11 @@ internal data class ProbeUiState(
     val sessionElapsedS: Long = 0L,
     val reportFileName: String? = null,
     val reportMessage: String = "",
+    val drafts: List<CaptureSession> = emptyList(),
+    val uploadJobs: List<UploadJob> = emptyList(),
+    val syncBanner: String? = null,
+    val ask: AskState? = null,
+    val queueMessage: String = "",
 )
 
 internal class ProbeController(private val activity: ComponentActivity) {
@@ -104,11 +159,44 @@ internal class ProbeController(private val activity: ComponentActivity) {
     private var glView: GLSurfaceView? = null
     private var activityResumed = false
     private var measureVisible = false
+    private var detectVisible = false
     private var sessionResumed = false
     private var installRequestPending = false
     private var lastUiPublishNs = 0L
     private var configureErrorClass: String? = null
     private var configureErrorMessage: String? = null
+
+    private val detectorEngine = DetectorEngine(
+        context = activity.applicationContext,
+        sensorOrientation = ::sensorOrientationDeg,
+        displayRotationDeg = { rotationToDegrees(glView?.display?.rotation ?: Surface.ROTATION_0) },
+    )
+    private val itemRegistry = ConfirmedItemRegistry()
+    private val draftStore = CaptureDraftStore(File(activity.filesDir, "drafts"))
+    private val uploadStore = FileUploadQueueStore(File(activity.filesDir, "upload-queue"))
+    private val authTokenProvider = UnavailableAuthTokenProvider()
+    private val uploadClient = UploadClient(
+        http = OkHttpClient(),
+        store = uploadStore,
+        auth = authTokenProvider,
+        configProvider = { SyncConfig.parse(BuildConfig.ROOMRELAY_API_BASE_URL) },
+    )
+    private val syncExecutor = Executors.newSingleThreadExecutor()
+    private val itemAnchors = java.util.concurrent.ConcurrentHashMap<String, Anchor>()
+    private var lastTrackingState = "STOPPED"
+    private var trackingBreaks = 0
+    private var thermalListener: PowerManager.OnThermalStatusChangedListener? = null
+    private var pendingConfirm: PendingConfirm? = null
+
+    private class PendingConfirm(
+        val trackId: Long,
+        val anchor: Anchor,
+        val hitType: String,
+        val trackingState: String,
+        val cocoLabel: String,
+        val score: Float,
+        val evidence: DetectionEvidence?,
+    )
 
     init {
         renderer = ArProbeRenderer(
@@ -118,7 +206,17 @@ internal class ProbeController(private val activity: ComponentActivity) {
             onFrame = ::onRendererFrame,
             onStatus = ::onRendererStatus,
         )
+        wireDetectorCallbacks()
+        registerThermalListener()
         refreshCapabilities()
+        mutableState.update {
+            it.copy(
+                drafts = draftStore.list(),
+                uploadJobs = uploadStore.list(),
+                syncBanner = syncBannerText(),
+            )
+        }
+        runPendingUploads()
     }
 
     fun refreshCapabilities() {
@@ -197,12 +295,142 @@ internal class ProbeController(private val activity: ComponentActivity) {
 
     fun setMeasureVisible(visible: Boolean) {
         measureVisible = visible
-        if (visible) {
+        updateKeepScreenOn()
+        syncSessionLifecycle()
+    }
+
+    fun setDetectVisible(visible: Boolean) {
+        detectVisible = visible
+        renderer.tapMode =
+            if (visible) ArProbeRenderer.TapMode.CANDIDATE else ArProbeRenderer.TapMode.MEASURE
+        renderer.frameHook =
+            if (visible) ({ frame, nowNs -> detectorEngine.onGlFrame(frame, nowNs) }) else null
+        updateKeepScreenOn()
+        syncSessionLifecycle()
+    }
+
+    private fun updateKeepScreenOn() {
+        if (measureVisible || detectVisible) {
             activity.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         } else {
             activity.window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         }
-        syncSessionLifecycle()
+    }
+
+    private fun wireDetectorCallbacks() {
+        detectorEngine.onResult = { result ->
+            renderer.imageBoxes = result.imageBoxes.map { (track, box) ->
+                CandidateImageBox(
+                    trackId = track.id,
+                    category = com.roomrelay.app.core.inference.categoryFromCocoLabel(track.cocoLabel),
+                    cocoLabel = track.cocoLabel,
+                    score = track.score,
+                    box = box,
+                    ambiguous = track.state == com.roomrelay.app.core.association.TrackState.AMBIGUOUS,
+                )
+            }
+            handler.post {
+                mutableState.update { state ->
+                    state.copy(
+                        detect = state.detect.copy(
+                            tentativeCount = result.tracks.count {
+                                it.state == com.roomrelay.app.core.association.TrackState.TENTATIVE
+                            },
+                            stableCount = result.tracks.count {
+                                it.state == com.roomrelay.app.core.association.TrackState.STABLE
+                            },
+                            ambiguousCount = result.tracks.count {
+                                it.state == com.roomrelay.app.core.association.TrackState.AMBIGUOUS
+                            },
+                        ),
+                    )
+                }
+            }
+        }
+        renderer.onOverlay = { boxes ->
+            handler.post {
+                mutableState.update { state ->
+                    state.copy(detect = state.detect.copy(overlayBoxes = boxes))
+                }
+            }
+        }
+        renderer.onCandidateAnchor = { trackId, anchor, hitType ->
+            handler.post { onCandidateAnchor(trackId, anchor, hitType) }
+        }
+        renderer.onTapMessage = { message ->
+            handler.post {
+                mutableState.update { state ->
+                    state.copy(detect = state.detect.copy(message = message))
+                }
+            }
+        }
+    }
+
+    private fun thermalStatusFromInt(status: Int): ThermalStatus = when (status) {
+        PowerManager.THERMAL_STATUS_NONE -> ThermalStatus.NONE
+        PowerManager.THERMAL_STATUS_LIGHT -> ThermalStatus.LIGHT
+        PowerManager.THERMAL_STATUS_MODERATE -> ThermalStatus.MODERATE
+        PowerManager.THERMAL_STATUS_SEVERE -> ThermalStatus.SEVERE
+        PowerManager.THERMAL_STATUS_CRITICAL -> ThermalStatus.CRITICAL
+        PowerManager.THERMAL_STATUS_EMERGENCY -> ThermalStatus.EMERGENCY
+        PowerManager.THERMAL_STATUS_SHUTDOWN -> ThermalStatus.SHUTDOWN
+        else -> ThermalStatus.UNKNOWN
+    }
+
+    private fun registerThermalListener() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
+        val powerManager = activity.getSystemService(PowerManager::class.java) ?: return
+        // Seed engine + UI with the current status so telemetry has a
+        // thermalStart even when the status never changes.
+        applyThermalStatus(thermalStatusFromInt(powerManager.currentThermalStatus))
+        val listener = PowerManager.OnThermalStatusChangedListener { status ->
+            applyThermalStatus(thermalStatusFromInt(status))
+        }
+        powerManager.addThermalStatusListener(listener)
+        thermalListener = listener
+    }
+
+    private fun applyThermalStatus(mapped: ThermalStatus) {
+            detectorEngine.setThermalStatus(mapped, SystemClock.elapsedRealtimeNanos())
+            handler.post {
+                mutableState.update { state ->
+                    state.copy(
+                        detect = state.detect.copy(
+                            thermalStatus = mapped.name,
+                            inferencePaused =
+                                com.roomrelay.app.core.inference.ThermalPolicy.isPaused(mapped),
+                            statusLine = when {
+                                com.roomrelay.app.core.inference.ThermalPolicy.isPaused(mapped) ->
+                                    "Phone is too hot — detection paused"
+                                mapped == ThermalStatus.SEVERE || mapped == ThermalStatus.MODERATE ->
+                                    "Phone is warm — detection slowed"
+                                else -> state.detect.statusLine
+                            },
+                        ),
+                    )
+                }
+        }
+    }
+
+    private fun rotationToDegrees(rotation: Int): Int = when (rotation) {
+        Surface.ROTATION_90 -> 90
+        Surface.ROTATION_180 -> 180
+        Surface.ROTATION_270 -> 270
+        else -> 0
+    }
+
+    private fun sensorOrientationDeg(): Int {
+        val cameraId = session?.cameraConfig?.cameraId ?: return 90
+        return try {
+            val manager = activity.getSystemService(android.content.Context.CAMERA_SERVICE)
+                as android.hardware.camera2.CameraManager
+            val characteristics = manager.getCameraCharacteristics(cameraId)
+            characteristics.get(
+                android.hardware.camera2.CameraCharacteristics.SENSOR_ORIENTATION,
+            ) ?: 90
+        } catch (_: Exception) {
+            90
+        }
     }
 
     fun createGlView(): GLSurfaceView {
@@ -409,8 +637,21 @@ internal class ProbeController(private val activity: ComponentActivity) {
         handler.removeCallbacksAndMessages(null)
         activityResumed = false
         measureVisible = false
+        detectVisible = false
         syncSessionLifecycle(forcePause = true)
         if (sessionLogger.isRunning) stopSessionLog()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            thermalListener?.let {
+                activity.getSystemService(PowerManager::class.java)
+                    ?.removeThermalStatusListener(it)
+            }
+        }
+        detectorEngine.close()
+        syncExecutor.shutdown()
+        pendingConfirm?.anchor?.detach()
+        pendingConfirm = null
+        itemAnchors.values.forEach { it.detach() }
+        itemAnchors.clear()
         glView = null
         session?.close()
         session = null
@@ -572,7 +813,7 @@ internal class ProbeController(private val activity: ComponentActivity) {
     private fun syncSessionLifecycle(forcePause: Boolean = false) {
         val shouldResume = !forcePause &&
             activityResumed &&
-            measureVisible &&
+            (measureVisible || detectVisible) &&
             glView != null &&
             session != null &&
             mutableState.value.capability.cameraPermission == "GRANTED"
@@ -641,16 +882,386 @@ internal class ProbeController(private val activity: ComponentActivity) {
                 publishSessionLog()
             }
         }
+        // Tracking breaks pause association; resume clears stale 2D tracks.
+        val tracking = snapshot.trackingState
+        if (tracking != lastTrackingState) {
+            if (lastTrackingState == TrackingState.TRACKING.name &&
+                tracking != TrackingState.TRACKING.name
+            ) {
+                trackingBreaks += 1
+                detectorEngine.pauseAssociation()
+            } else if (tracking == TrackingState.TRACKING.name &&
+                lastTrackingState != "STOPPED" && detectorEngine.tracker.paused
+            ) {
+                detectorEngine.resumeAssociation()
+            }
+            lastTrackingState = tracking
+        }
         if (nowNs - lastUiPublishNs < UI_PUBLISH_INTERVAL_NS) return
         lastUiPublishNs = nowNs
+        val telemetry = detectorEngine.telemetry.snapshot()
         mutableState.update { state ->
             state.copy(
                 measure = snapshot,
                 sessionLogRunning = sessionLogger.isRunning,
                 sessionElapsedS =
                     if (sessionLogger.isRunning) sessionLogger.elapsedS(nowNs) else state.sessionElapsedS,
+                detect = state.detect.copy(
+                    trackingState = snapshot.trackingState,
+                    achievedFps = telemetry.achievedFps,
+                    latencyP50Ms = telemetry.latencyP50Ms,
+                    statusLine = when {
+                        detectorEngine.detectorError != null -> detectorEngine.detectorError!!
+                        state.detect.inferencePaused -> "Phone is too hot — detection paused"
+                        detectorEngine.tracker.paused ->
+                            "Camera tracking lost — item association paused until tracking returns"
+                        else -> "Detection running"
+                    },
+                ),
             )
         }
+    }
+
+    // ---- Candidate confirm + capture drafts + sync ----
+
+    private fun onCandidateAnchor(trackId: Long, anchor: Anchor, hitType: String) {
+        val track = detectorEngine.tracker.tracks().firstOrNull { it.id == trackId }
+        if (track == null) {
+            anchor.detach()
+            mutableState.update { it.copy(detect = it.detect.copy(message = "That item moved — tap again.")) }
+            return
+        }
+        val category = com.roomrelay.app.core.inference.categoryFromCocoLabel(track.cocoLabel)
+        if (category == null) {
+            anchor.detach()
+            mutableState.update {
+                it.copy(detect = it.detect.copy(message = "That detection is not a furniture type."))
+            }
+            return
+        }
+        val pose = anchor.pose
+        pendingConfirm = PendingConfirm(
+            trackId = trackId,
+            anchor = anchor,
+            hitType = hitType,
+            trackingState = track.let { mutableState.value.measure.trackingState },
+            cocoLabel = track.cocoLabel,
+            score = track.score,
+            evidence = DetectionEvidence(
+                cocoLabel = track.cocoLabel,
+                score = track.score,
+                frameTimeNs = track.lastSeenNs,
+                boxImagePx = listOf(track.box.left, track.box.top, track.box.right, track.box.bottom),
+            ),
+        )
+        val position = Vec3(pose.tx().toDouble(), pose.ty().toDouble(), pose.tz().toDouble())
+        when (val decision = itemRegistry.decide(category, position)) {
+            is MergeDecision.SameAsExisting ->
+                mutableState.update {
+                    it.copy(
+                        ask = AskState(
+                            candidateIds = listOf(decision.itemId),
+                            prompt = "This looks like item ${decision.itemId} you already confirmed. Same item, or a new one?",
+                        ),
+                    )
+                }
+            is MergeDecision.Ask ->
+                mutableState.update {
+                    it.copy(
+                        ask = AskState(
+                            candidateIds = decision.candidateIds,
+                            prompt = "Several similar items here — same as one of these, or a new item?",
+                        ),
+                    )
+                }
+            MergeDecision.NewItem -> confirmCandidateAsNew(category, position)
+        }
+    }
+
+    /** Ask dialog: the tapped candidate is the same as an existing item. */
+    fun resolveAskSame(itemId: Long) {
+        dismissAsk(detach = true)
+        mutableState.update {
+            it.copy(
+                detect = it.detect.copy(
+                    message = "Kept as item $itemId — no duplicate added.",
+                ),
+            )
+        }
+    }
+
+    /** Ask dialog: the tapped candidate is a different, new item. */
+    fun resolveAskNew() {
+        val pending = pendingConfirm ?: run {
+            dismissAsk(detach = false)
+            return
+        }
+        val pose = pending.anchor.pose
+        val category = com.roomrelay.app.core.inference.categoryFromCocoLabel(pending.cocoLabel)
+        dismissAsk(detach = false)
+        if (category != null) {
+            confirmCandidateAsNew(
+                category,
+                Vec3(pose.tx().toDouble(), pose.ty().toDouble(), pose.tz().toDouble()),
+                keepPending = pending,
+            )
+        }
+    }
+
+    fun dismissAsk(detach: Boolean = true) {
+        if (detach) pendingConfirm?.anchor?.detach()
+        pendingConfirm = null
+        mutableState.update { it.copy(ask = null) }
+    }
+
+    private fun confirmCandidateAsNew(
+        category: RoomRelayCategory,
+        position: Vec3,
+        keepPending: PendingConfirm? = pendingConfirm,
+    ) {
+        val pending = keepPending ?: return
+        val item = itemRegistry.add(category, position)
+        val localId = item.id.toString()
+        itemAnchors[localId] = pending.anchor
+        val pose = pending.anchor.pose
+        val captured = CapturedItem(
+            localId = localId,
+            category = category,
+            categorySource = com.roomrelay.app.core.capture.CategorySource.MODEL_DETECTED,
+            categoryCocoLabel = pending.cocoLabel,
+            categoryScore = pending.score,
+            categoryModelId = DETECTOR_MODEL_ID,
+            anchor = CaptureAnchor(
+                translation = listOf(pose.tx().toDouble(), pose.ty().toDouble(), pose.tz().toDouble()),
+                rotationQuaternion = listOf(
+                    pose.qx().toDouble(), pose.qy().toDouble(),
+                    pose.qz().toDouble(), pose.qw().toDouble(),
+                ),
+                hitType = pending.hitType,
+                trackingStateAtConfirm = pending.trackingState,
+                confirmedAtUtc = utcNow(),
+            ),
+            detectionEvidence = pending.evidence,
+        )
+        upsertItemDraft(captured)
+        pendingConfirm = null
+        mutableState.update {
+            it.copy(
+                ask = null,
+                detect = it.detect.copy(
+                    message = "Item $localId added (${category.name.lowercase()}). Measure it on the Items tab.",
+                ),
+            )
+        }
+    }
+
+    /** Manual item entry: a draft item with a user-picked category. */
+    fun addManualItem(category: RoomRelayCategory, freeText: String?) {
+        val localId = UUID.randomUUID().toString().take(8)
+        val captured = CapturedItem(
+            localId = localId,
+            category = category,
+            categorySource = com.roomrelay.app.core.capture.CategorySource.USER_MANUAL,
+            freeTextLabel = freeText?.trim()?.ifBlank { null },
+        )
+        upsertItemDraft(captured)
+        mutableState.update {
+            it.copy(queueMessage = "Item $localId added manually. Measure it to queue for upload.")
+        }
+    }
+
+    /**
+     * Adds or replaces the item in its single-item ITEM draft. One item per
+     * ITEM capture, matching validateForUpload.
+     */
+    private fun upsertItemDraft(item: CapturedItem) {
+        val existing = mutableState.value.drafts.firstOrNull {
+            it.kind == CaptureKind.ITEM && it.items.firstOrNull()?.localId == item.localId
+        }
+        val session = existing?.copy(items = listOf(item)) ?: CaptureSession(
+            clientCaptureId = UUID.randomUUID().toString(),
+            kind = CaptureKind.ITEM,
+            consentVersion = CONSENT_VERSION,
+            createdAtUtc = utcNow(),
+            device = captureDevice(),
+            frameId = "arcore-session:${sessionUuid()}",
+            trackingBreaks = trackingBreaks,
+        )
+        draftStore.save(session)
+        mutableState.update { it.copy(drafts = draftStore.list()) }
+    }
+
+    private val captureSessionUuid = UUID.randomUUID().toString()
+
+    private fun sessionUuid(): String = captureSessionUuid
+
+    private fun captureDevice(): CaptureDevice = CaptureDevice(
+        manufacturer = Build.MANUFACTURER,
+        model = Build.MODEL,
+        sdkInt = Build.VERSION.SDK_INT,
+        appVersion = BuildConfig.VERSION_NAME,
+        arcoreSdkVersion = "1.56.0",
+        detectorModelId = DETECTOR_MODEL_ID,
+    )
+
+    /** Records a confirmed dimension for an item; the only path to dimensions. */
+    fun setItemDimension(
+        clientCaptureId: String,
+        localId: String,
+        axis: CaptureAxis,
+        valueM: Double,
+        source: DimensionSource,
+    ) {
+        if (!valueM.isFinite() || valueM <= 0.0 || valueM > 10.0) {
+            mutableState.update { it.copy(queueMessage = "Dimension must be between 0 and 10 m.") }
+            return
+        }
+        val draft = mutableState.value.drafts.firstOrNull { it.clientCaptureId == clientCaptureId }
+            ?: return
+        val item = draft.items.firstOrNull { it.localId == localId } ?: return
+        val measure = mutableState.value.measure
+        val nextRevision = (item.dimensions.filter { it.axis == axis }
+            .maxOfOrNull { it.revision } ?: 0) + 1
+        val updated = item.copy(
+            dimensions = item.dimensions.filterNot { it.axis == axis } + DimensionMeasurement(
+                axis = axis,
+                valueM = valueM,
+                source = source,
+                confirmedByUser = true,
+                actor = "device-user",
+                confirmedAtUtc = utcNow(),
+                revision = nextRevision,
+                hitTypes = if (source == DimensionSource.ARCORE_ESTIMATED) {
+                    listOfNotNull(measure.firstHitType, measure.secondHitType).ifEmpty { null }
+                } else {
+                    null
+                },
+                trackingState = if (source == DimensionSource.ARCORE_ESTIMATED) {
+                    measure.trackingState
+                } else {
+                    null
+                },
+            ),
+        )
+        draftStore.save(draft.copy(items = listOf(updated)))
+        mutableState.update {
+            it.copy(
+                drafts = draftStore.list(),
+                queueMessage = "${axis.name.lowercase()} saved for item $localId.",
+            )
+        }
+    }
+
+    /** Typed centimeters -> meters dimension via the shared tape parser. */
+    fun setItemDimensionCm(
+        clientCaptureId: String,
+        localId: String,
+        axis: CaptureAxis,
+        tapeText: String,
+    ) {
+        val cm = parseTapeCm(tapeText)
+        if (cm == null) {
+            mutableState.update { it.copy(queueMessage = "Enter a tape length in centimeters.") }
+            return
+        }
+        setItemDimension(clientCaptureId, localId, axis, cm / 100.0, DimensionSource.USER_MEASURED)
+    }
+
+    /** Two-point AR estimate confirmed by the user. */
+    fun confirmArEstimateDimension(
+        clientCaptureId: String,
+        localId: String,
+        axis: CaptureAxis,
+    ) {
+        val measure = mutableState.value.measure
+        val distance = measure.distanceMeters
+        if (distance == null || !measure.hasBothAnchors) {
+            mutableState.update {
+                it.copy(queueMessage = "Set two points on the Measure tab first.")
+            }
+            return
+        }
+        setItemDimension(clientCaptureId, localId, axis, distance, DimensionSource.ARCORE_ESTIMATED)
+    }
+
+    fun deleteDraft(clientCaptureId: String) {
+        val draft = mutableState.value.drafts.firstOrNull { it.clientCaptureId == clientCaptureId }
+        draft?.items?.forEach { item ->
+            itemAnchors.remove(item.localId)?.detach()
+        }
+        draftStore.delete(clientCaptureId)
+        mutableState.update { it.copy(drafts = draftStore.list()) }
+    }
+
+    /** Validates a draft and enqueues its manifest for upload. */
+    fun queueUpload(clientCaptureId: String) {
+        val draft = mutableState.value.drafts.firstOrNull { it.clientCaptureId == clientCaptureId }
+            ?: return
+        val errors = draft.validateForUpload()
+        if (errors.isNotEmpty()) {
+            mutableState.update {
+                it.copy(queueMessage = "Not ready: ${errors.joinToString(" ")}")
+            }
+            return
+        }
+        val payload = Json { encodeDefaults = true }.encodeToString(
+            CaptureSession.serializer(), draft,
+        ).toByteArray(Charsets.UTF_8)
+        val job = uploadClient.enqueue(draft, payload)
+        mutableState.update {
+            it.copy(
+                uploadJobs = uploadStore.list(),
+                queueMessage = "Item queued for upload (job ${job.jobId.take(8)}).",
+                syncBanner = syncBannerText(),
+            )
+        }
+        runPendingUploads()
+    }
+
+    /** "Sync now": retries due and scheduled jobs immediately. */
+    fun syncNow() {
+        runPendingUploads(force = true)
+    }
+
+    private fun runPendingUploads(force: Boolean = false) {
+        syncExecutor.execute {
+            val jobs = try {
+                uploadClient.runPending(force)
+            } catch (_: Exception) {
+                uploadStore.list()
+            }
+            handler.post {
+                mutableState.update {
+                    it.copy(
+                        uploadJobs = jobs,
+                        syncBanner = syncBannerText(),
+                    )
+                }
+            }
+        }
+    }
+
+    private fun syncBannerText(): String? {
+        val config = SyncConfig.parse(BuildConfig.ROOMRELAY_API_BASE_URL)
+        if (config is SyncConfig.Unavailable) return "Sync unavailable: ${config.reason}."
+        return when (val token = authTokenProvider.currentToken()) {
+            is com.roomrelay.app.core.sync.TokenResult.Available -> null
+            is com.roomrelay.app.core.sync.TokenResult.Unavailable ->
+                "Sync unavailable: ${token.reason}."
+        }
+    }
+
+    fun uploadStatusText(job: UploadJob): String = when (job.status) {
+        UploadStatus.PENDING -> "Waiting to upload"
+        UploadStatus.RUNNING -> "Uploading"
+        UploadStatus.RETRY_SCHEDULED -> "Will retry — ${job.lastError ?: "network problem"}"
+        UploadStatus.AUTH_REQUIRED -> "Sign-in needed before upload"
+        UploadStatus.AUTH_UNAVAILABLE -> job.lastError ?: "Sign-in unavailable"
+        UploadStatus.SYNC_UNAVAILABLE -> job.lastError ?: "Sync unavailable"
+        UploadStatus.FORBIDDEN -> "This capture belongs to a different account"
+        UploadStatus.NOT_FOUND -> "Capture no longer exists on the server"
+        UploadStatus.FAILED -> "Upload failed: ${job.lastError ?: "unknown error"}"
+        UploadStatus.COMPLETED -> "Uploaded"
     }
 
     private fun onRendererStatus(status: String) {
@@ -716,6 +1327,13 @@ internal class ProbeController(private val activity: ComponentActivity) {
             measurementSummary = summarizeTrials(state.trials),
             sessionLog = if (sessionLogger.isRunning) null else sessionLogger.result(),
             notes = state.notes,
+            detectorModel = DetectorModelInfo(
+                id = DETECTOR_MODEL_ID,
+                url = DETECTOR_MODEL_URL,
+                sha256 = DETECTOR_MODEL_SHA256,
+            ),
+            inference = detectorEngine.telemetry.snapshot(),
+            captures = draftStore.list(),
         )
     }
 
@@ -757,5 +1375,6 @@ internal class ProbeController(private val activity: ComponentActivity) {
         const val MAX_AVAILABILITY_POLLS = 50
         const val AVAILABILITY_POLL_INTERVAL_MS = 200L
         const val UI_PUBLISH_INTERVAL_NS = 100_000_000L
+        const val CONSENT_VERSION = "capture-consent-v1"
     }
 }
