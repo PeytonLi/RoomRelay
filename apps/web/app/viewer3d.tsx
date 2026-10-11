@@ -388,9 +388,9 @@ export default function Viewer3D({ room, items, placements, selectedId, onSelect
     };
     s.raf = requestAnimationFrame(loop);
 
-    // Test-only hook: projected screen centers of an item's model bbox and the
-    // selection helper, used by e2e to verify they share one transform.
-    (window as unknown as Record<string, unknown>).__rrDebug = {
+    // Test-only hook (dev/e2e only): projected screen centers of an item's
+    // model bbox and the selection helper. Not installed in production builds.
+    const debugHook = {
       centers: (itemId: string) => {
         const g = s.itemGroups.get(itemId);
         if (!g) return null;
@@ -412,8 +412,15 @@ export default function Viewer3D({ room, items, placements, selectedId, onSelect
         return out;
       },
     };
+    const win = window as unknown as Record<string, unknown>;
+    if (process.env.NODE_ENV !== "production") {
+      win.__rrDebug = debugHook;
+    } else {
+      delete win.__rrDebug;
+    }
 
     return () => {
+      delete win.__rrDebug;
       cancelAnimationFrame(s.raf);
       ro.disconnect();
       renderer.domElement.removeEventListener("pointerdown", down);
