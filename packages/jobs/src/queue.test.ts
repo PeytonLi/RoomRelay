@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { InMemorySubjectVersionGuard } from "./guard";
 import { jobIdempotencyKey } from "./queue";
+import { runWorker, type WorkerOptions } from "./worker";
 
 describe("jobIdempotencyKey", () => {
   it("includes the job type, subject version, and stage", () => {
@@ -26,5 +27,37 @@ describe("InMemorySubjectVersionGuard", () => {
     expect(await guard.check({ type: "item", id: "missing", version: 1 }, tx)).toBe("DELETED");
     guard.markDeleted("item", "1");
     expect(await guard.check({ type: "item", id: "1", version: 2 }, tx)).toBe("DELETED");
+  });
+});
+
+describe("runWorker", () => {
+  it("continues after a failed iteration and stops when aborted", async () => {
+    const controller = new AbortController();
+    let leaseCalls = 0;
+    const queue = {
+      lease: async () => {
+        leaseCalls += 1;
+        if (leaseCalls === 1) throw new Error("database unavailable");
+        controller.abort();
+        return null;
+      },
+    } as unknown as WorkerOptions["queue"];
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    try {
+      await expect(runWorker({
+        queue,
+        workerId: "worker-1",
+        handlers: {},
+        guard: new InMemorySubjectVersionGuard(),
+        signal: controller.signal,
+        pollMs: 0,
+      })).resolves.toBeUndefined();
+      expect(leaseCalls).toBe(2);
+      expect(errorSpy).toHaveBeenCalledTimes(1);
+      expect(errorSpy).toHaveBeenCalledWith("[jobs] runWorkerOnce failed");
+    } finally {
+      errorSpy.mockRestore();
+    }
   });
 });

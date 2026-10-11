@@ -102,7 +102,14 @@ export async function runWorker(
 ): Promise<void> {
   const pollMs = opts.pollMs ?? 1000;
   while (!opts.signal.aborted) {
-    const result = await runWorkerOnce(opts);
+    let result: WorkerOnceResult;
+    try {
+      result = await runWorkerOnce(opts);
+    } catch {
+      console.error("[jobs] runWorkerOnce failed");
+      await waitForPoll(pollMs, opts.signal);
+      continue;
+    }
     opts.onResult?.(result);
     if (result === "IDLE") await waitForPoll(pollMs, opts.signal);
   }

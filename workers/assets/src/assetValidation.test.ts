@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PermanentJobError, type JobRow } from "@roomrelay/jobs";
@@ -56,6 +56,7 @@ describe("asset.validate handler", () => {
       validation: { status: "OK", stats: { triangleCount: 1 } },
       manifest: { format: "model/gltf-binary", provenance: "SCANNED_ACTUAL" },
     });
+    expect(output).toHaveProperty("manifestError", null);
     expect(output).not.toHaveProperty("bytes");
   });
 
@@ -80,6 +81,29 @@ describe("asset.validate handler", () => {
     })).rejects.toBeInstanceOf(PermanentJobError);
   });
 
+  it("returns a manifest error for valid GLB without measurable geometry", async () => {
+    const root = await newRoot();
+    const bytes = buildGlb({
+      asset: { version: "2.0" },
+      scene: 0,
+      scenes: [{ nodes: [] }],
+      nodes: [],
+      meshes: [],
+    });
+    await writeFile(join(root, "meshless.glb"), bytes);
+    const handler = createAssetValidationHandler(new LocalFsObjectReader(root));
+    const output = await handler({
+      job: job({ objectKey: "meshless.glb", provenance: "SCANNED_ACTUAL" }),
+      signal: new AbortController().signal,
+    });
+
+    expect(output).toMatchObject({
+      validation: { status: "OK" },
+      manifest: null,
+      manifestError: { code: "DEGENERATE_BOUNDS" },
+    });
+  });
+
   it("rejects traversal keys", async () => {
     const root = await newRoot();
     const reader = new LocalFsObjectReader(root);
@@ -91,6 +115,15 @@ describe("asset.validate handler", () => {
     await writeFile(join(root, "large.glb"), new Uint8Array(16));
     await expect(new LocalFsObjectReader(root).read("large.glb", 8)).rejects.toMatchObject({
       message: "TOO_LARGE",
+    });
+  });
+
+  it("treats directories as missing objects", async () => {
+    const root = await newRoot();
+    await mkdir(join(root, "directory"));
+    await expect(new LocalFsObjectReader(root).read("directory", 1000)).rejects.toMatchObject({
+      name: "PermanentJobError",
+      message: "OBJECT_NOT_FOUND",
     });
   });
 

@@ -56,7 +56,15 @@ export class LocalFsObjectReader implements ObjectReader {
       return new Uint8Array(await readFile(actualPath));
     } catch (error) {
       if (error instanceof PermanentJobError) throw error;
-      throw new PermanentJobError("OBJECT_NOT_FOUND");
+      if (
+        typeof error === "object" &&
+        error !== null &&
+        "code" in error &&
+        (error.code === "ENOENT" || error.code === "ENOTDIR")
+      ) {
+        throw new PermanentJobError("OBJECT_NOT_FOUND");
+      }
+      throw new Error(`OBJECT_READ_FAILED: ${key}`);
     }
   }
 }

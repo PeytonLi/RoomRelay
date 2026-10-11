@@ -1,6 +1,7 @@
 import {
   buildAssetManifest,
   DEFAULT_GLB_LIMITS,
+  GlbError,
   validateGlb,
   type AssetProvenance,
   type BuildAssetManifestInput,
@@ -47,6 +48,7 @@ export interface AssetValidationInput {
 export interface AssetValidationOutput {
   validation: ReturnType<typeof validateGlb>;
   manifest: ReturnType<typeof buildAssetManifest> | null;
+  manifestError?: { code: string; message: string } | null;
 }
 
 export function createAssetValidationHandler(reader: ObjectReader): JobHandler {
@@ -57,6 +59,7 @@ export function createAssetValidationHandler(reader: ObjectReader): JobHandler {
     const bytes = await reader.read(input.objectKey, DEFAULT_GLB_LIMITS.maxBytes);
     const validation = validateGlb(bytes);
     let manifest: AssetValidationOutput["manifest"] = null;
+    let manifestError: { code: string; message: string } | null = null;
     if (validation.status !== "REJECTED") {
       const manifestInput: BuildAssetManifestInput = {
         bytes,
@@ -67,9 +70,14 @@ export function createAssetValidationHandler(reader: ObjectReader): JobHandler {
         ...(input.evidenceRef === undefined ? {} : { evidenceRef: input.evidenceRef }),
         subject: { type: job.subject.type, id: job.subject.id, version: job.subject.version },
       };
-      manifest = buildAssetManifest(manifestInput);
+      try {
+        manifest = buildAssetManifest(manifestInput);
+      } catch (error) {
+        if (!(error instanceof GlbError)) throw error;
+        manifestError = { code: error.code, message: error.message };
+      }
     }
-    return { validation, manifest } satisfies AssetValidationOutput;
+    return { validation, manifest, manifestError } satisfies AssetValidationOutput;
   };
 }
 
