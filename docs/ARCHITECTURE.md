@@ -96,7 +96,7 @@ Use UUIDs for internal IDs, UTC timestamps, explicit version integers and JSON s
 | Refund | capture/order, amount/currency, idempotency key, provider refund ID/status, initiator/reason, completed amount. P0 full refunds only. |
 | Pickup/Handoff | order, approved slot, protected location/contact notes, buyer/seller acknowledgments, issues and revision history. |
 | SupportCase | order/affected item IDs, participants, status/reason, minimal private evidence, operator audit references. |
-| Job | type/subject/version/idempotency key, status, attempts, lease owner/expires, runAfter, input/output references, reason and cancellation token. |
+| Job | type/stage/subject type+id+version, unique idempotency key `type\|subjectType\|subjectId\|vN\|stage`, status QUEUED/RUNNING/SUCCEEDED/FAILED/CANCELLED/SUPERSEDED, attempts/maxAttempts, lease owner/token/expires (token fences late completions), runAfter, input/output references, reason, cancelRequestedAt. Implemented in `packages/jobs`. |
 | AuditEvent | actor/service, resource/version, action, correlation ID, timestamp and redacted metadata. Append-only; no raw media or tokens. |
 
 Separate publication state from inventory state. Content updates cannot make SOLD inventory available. Keep purchase facts in order snapshots even if a listing later changes. Financial records must not reference disposable raw capture files as their only evidence.

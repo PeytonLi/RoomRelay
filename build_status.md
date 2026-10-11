@@ -87,6 +87,16 @@ Blocker or risk (if any): schema.prisma EOF block can conflict textually with T-
 Next task: after T-004's Asset model lands, implement the Asset-backed guard and enqueue asset.validate on upload finalization.
 ```
 
+```text
+Date / task / owner: 2026-10-11 / Jobs operability / Devin (session https://app.devin.ai/sessions/a420e29fb1b449cdb6d6237ac00c1304)
+State and user-visible result: IMPLEMENTED on branch devin/1791697460-jobs-operability. Added guarded same-row operator retry and queue metrics, a local asset enqueue CLI, and privacy-safe job health reporting at /api/health.
+Files and commit: packages/jobs/src/{queue.ts,queue.test.ts,jobs.integration.test.ts}, packages/jobs/README.md, workers/assets/{package.json,src/assetValidation.ts,src/enqueue.ts,src/enqueue.test.ts}, apps/web/{app/api/health/route.ts,lib/jobs.ts,lib/jobs.test.ts}, docs/ARCHITECTURE.md, build_status.md. Code commits: 7020982, 054a3ac, 116d9ff; documentation/evidence is in the final docs commit.
+Checks actually run and results: `pnpm -r typecheck` passed for all 6 typecheck-enabled workspace projects. With `$env:DATABASE_URL='postgresql://roomrelay:roomrelay-dev@localhost:5432/roomrelay'`, `pnpm --filter @roomrelay/jobs --filter @roomrelay/asset-worker --filter @roomrelay/web test` passed: jobs 22/22, asset-worker 15/15, web 53/53 (90 total). Web DB setup used `roomrelay_test`; Prisma reported no pending migrations. `pnpm --filter @roomrelay/web build` passed and emitted `/api/health`. Enqueue smoke: `pnpm --filter @roomrelay/asset-worker enqueue -- --object-key operability-smoke/ops-smoke-1791697717905.glb --subject-id ops-smoke-1791697717905 --provenance SCANNED_ACTUAL` printed `{"id":"9a399a18-d4a6-42dc-8073-7f2c7493a9b7","created":true,"idempotencyKey":"asset.validate|asset|ops-smoke-1791697717905|v1|validate","status":"QUEUED"}`; the smoke row was then deleted.
+Requirements satisfied / remaining: Queue retry refuses financial prefixes before status checks, preserves the row/key, and requeues only failed/cancelled jobs whose subject is current; stats cover all statuses and due/expired metrics. Remaining after this slice: HTTP operator retry route + audit event (requires Clerk/operator auth and an AuditEvent model), GET /jobs/:id, and T-004 wiring.
+Blocker or risk (if any): No schema or migration edits were made. Context7's monthly quota was exceeded; official Node.js `util.parseArgs` and Prisma documentation were used as the fallback.
+Next task: Add the auth-backed HTTP operator retry/audit route and GET /jobs/:id when the required auth and AuditEvent model are available, then wire this queue into T-004.
+```
+
 ## Milestone ledger
 
 | Milestone | State | Exit evidence |

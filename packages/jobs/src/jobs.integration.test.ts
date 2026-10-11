@@ -302,4 +302,140 @@ databaseSuite("PgJobQueue integration", () => {
     expect(await work).toBe("CANCELLED");
     expect(signal.aborted).toBe(true);
   });
+
+  it("requeues FAILED jobs without changing their identity", async () => {
+    await currentSubject("retry-failed");
+    const created = await enqueue("retry-failed");
+    const leased = await queue.lease({ workerId: "retry", types: ["test"], leaseMs: 1000 });
+    expect(await queue.fail(leased!.id, leased!.leaseToken!, { reason: "terminal", retryable: false })).toBe("FAILED");
+
+    expect(await queue.retryJob(created.job.id, { reason: " retry after fix ", guard: tableGuard })).toBe("REQUEUED");
+    const requeued = await queue.get(created.job.id);
+    expect(requeued).toMatchObject({
+      id: created.job.id,
+      idempotencyKey: created.job.idempotencyKey,
+      status: "QUEUED",
+      attempts: 0,
+      reason: "OPERATOR_RETRY: retry after fix",
+      cancelRequestedAt: null,
+      finishedAt: null,
+      outputRef: null,
+      leaseOwner: null,
+      leaseToken: null,
+      leaseExpiresAt: null,
+    });
+    expect(await queue.lease({ workerId: "retry-again", types: ["test"], leaseMs: 1000 })).toMatchObject({
+      id: created.job.id,
+      idempotencyKey: created.job.idempotencyKey,
+      attempts: 1,
+    });
+  });
+
+  it("requeues CANCELLED jobs", async () => {
+    await currentSubject("retry-cancelled");
+    const created = await enqueue("retry-cancelled");
+    expect(await queue.cancel(created.job.id)).toBe("CANCELLED");
+
+    expect(await queue.retryJob(created.job.id, { reason: "approved", guard: tableGuard })).toBe("REQUEUED");
+    expect(await queue.get(created.job.id)).toMatchObject({
+      status: "QUEUED",
+      attempts: 0,
+      reason: "OPERATOR_RETRY: approved",
+      cancelRequestedAt: null,
+      finishedAt: null,
+    });
+  });
+
+  it("refuses SUCCEEDED and SUPERSEDED jobs", async () => {
+    await currentSubject("retry-succeeded");
+    const succeeded = await enqueue("retry-succeeded");
+    const successLease = await queue.lease({ workerId: "retry-status", types: ["test"], leaseMs: 1000 });
+    expect(await queue.complete(successLease!.id, successLease!.leaseToken!, {}, tableGuard)).toBe("SUCCEEDED");
+
+    await currentSubject("retry-superseded");
+    const superseded = await enqueue("retry-superseded");
+    const supersededLease = await queue.lease({ workerId: "retry-status", types: ["test"], leaseMs: 1000 });
+    await currentSubject("retry-superseded", 2);
+    expect(await queue.complete(supersededLease!.id, supersededLease!.leaseToken!, {}, tableGuard)).toBe("SUPERSEDED");
+
+    expect(await queue.retryJob(succeeded.job.id, { reason: "retry", guard: tableGuard })).toBe("NOT_RETRYABLE_STATUS");
+    expect(await queue.retryJob(superseded.job.id, { reason: "retry", guard: tableGuard })).toBe("NOT_RETRYABLE_STATUS");
+    expect((await queue.get(succeeded.job.id))?.status).toBe("SUCCEEDED");
+    expect((await queue.get(superseded.job.id))?.status).toBe("SUPERSEDED");
+  });
+
+  it("refuses failed financial jobs without changing the row", async () => {
+    await currentSubject("retry-payment");
+    const created = await queue.enqueue({ ...input("retry-payment"), type: "payment.capture" });
+    const leased = await queue.lease({ workerId: "retry-payment", types: ["payment.capture"], leaseMs: 1000 });
+    expect(await queue.fail(leased!.id, leased!.leaseToken!, { reason: "declined", retryable: false })).toBe("FAILED");
+    const before = await queue.get(created.job.id);
+
+    expect(await queue.retryJob(created.job.id, { reason: "operator request", guard: tableGuard }))
+      .toBe("FINANCIAL_TYPE_REFUSED");
+    expect(await queue.get(created.job.id)).toEqual(before);
+  });
+
+  it("refuses retry when the subject is no longer current without changing the row", async () => {
+    await currentSubject("retry-stale");
+    const created = await enqueue("retry-stale");
+    const leased = await queue.lease({ workerId: "retry-stale", types: ["test"], leaseMs: 1000 });
+    expect(await queue.fail(leased!.id, leased!.leaseToken!, { reason: "terminal", retryable: false })).toBe("FAILED");
+    const before = await queue.get(created.job.id);
+    await currentSubject("retry-stale", 2);
+
+    expect(await queue.retryJob(created.job.id, { reason: "retry", guard: tableGuard })).toBe("SUBJECT_NOT_CURRENT");
+    expect(await queue.get(created.job.id)).toEqual(before);
+  });
+
+  it("reports missing jobs and rejects empty operator reasons", async () => {
+    expect(await queue.retryJob("missing", { reason: "retry", guard: tableGuard })).toBe("NOT_FOUND");
+    await expect(queue.retryJob("missing", { reason: "  ", guard: tableGuard })).rejects.toThrow(TypeError);
+  });
+
+  it("reports counts, oldest due queued age, and expired leases", async () => {
+    await queue.enqueue({ ...input("stats-due"), runAfter: new Date(Date.now() - 20_000) });
+    await queue.enqueue({ ...input("stats-future"), runAfter: new Date(Date.now() + 60_000) });
+
+    const running = await queue.enqueue({ ...input("stats-running"), type: "stats-running" });
+    const runningLease = await queue.lease({
+      workerId: "stats",
+      types: ["stats-running"],
+      leaseMs: 1000,
+    });
+    await pool.query("UPDATE jobs SET lease_expires_at = now() - interval '1 second' WHERE id = $1", [running.job.id]);
+    expect(runningLease).not.toBeNull();
+
+    await currentSubject("stats-succeeded");
+    const succeeded = await queue.enqueue({ ...input("stats-succeeded"), type: "stats-succeeded" });
+    const succeededLease = await queue.lease({ workerId: "stats", types: ["stats-succeeded"], leaseMs: 1000 });
+    expect(await queue.complete(succeededLease!.id, succeededLease!.leaseToken!, {}, tableGuard)).toBe("SUCCEEDED");
+
+    const failed = await queue.enqueue({ ...input("stats-failed"), type: "stats-failed" });
+    const failedLease = await queue.lease({ workerId: "stats", types: ["stats-failed"], leaseMs: 1000 });
+    expect(await queue.fail(failedLease!.id, failedLease!.leaseToken!, { reason: "terminal", retryable: false }))
+      .toBe("FAILED");
+
+    const cancelled = await queue.enqueue({ ...input("stats-cancelled"), type: "stats-cancelled" });
+    expect(await queue.cancel(cancelled.job.id)).toBe("CANCELLED");
+
+    await currentSubject("stats-superseded");
+    const superseded = await queue.enqueue({ ...input("stats-superseded"), type: "stats-superseded" });
+    const supersededLease = await queue.lease({ workerId: "stats", types: ["stats-superseded"], leaseMs: 1000 });
+    await currentSubject("stats-superseded", 2);
+    expect(await queue.complete(supersededLease!.id, supersededLease!.leaseToken!, {}, tableGuard)).toBe("SUPERSEDED");
+
+    const stats = await queue.stats();
+    expect(stats.counts).toEqual({
+      QUEUED: 2,
+      RUNNING: 1,
+      SUCCEEDED: 1,
+      FAILED: 1,
+      CANCELLED: 1,
+      SUPERSEDED: 1,
+    });
+    expect(stats.oldestQueuedAgeSeconds).toBeGreaterThanOrEqual(20);
+    expect(stats.oldestQueuedAgeSeconds).toBeLessThanOrEqual(30);
+    expect(stats.expiredLeases).toBe(1);
+  });
 });

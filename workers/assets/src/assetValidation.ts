@@ -24,7 +24,7 @@ const dimensionsSchema = z.object({
   heightM: z.number().finite().positive(),
 }).strict();
 
-const inputSchema = z.object({
+export const assetValidationInputSchema = z.object({
   objectKey: z.string().min(1),
   provenance: z.enum([
     "SCANNED_ACTUAL",
@@ -53,7 +53,7 @@ export interface AssetValidationOutput {
 
 export function createAssetValidationHandler(reader: ObjectReader): JobHandler {
   return async ({ job }) => {
-    const parsed = inputSchema.safeParse(job.inputRef);
+    const parsed = assetValidationInputSchema.safeParse(job.inputRef);
     if (!parsed.success) throw new PermanentJobError("INVALID_ASSET_VALIDATE_INPUT");
     const input = parsed.data;
     const bytes = await reader.read(input.objectKey, DEFAULT_GLB_LIMITS.maxBytes);

@@ -1,7 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 import { InMemorySubjectVersionGuard } from "./guard";
-import { jobIdempotencyKey } from "./queue";
+import { isFinancialJobType, jobIdempotencyKey } from "./queue";
 import { runWorker, type WorkerOptions } from "./worker";
+
+describe("isFinancialJobType", () => {
+  it("recognizes financial job type prefixes only", () => {
+    expect(["payment.capture", "refund.issue", "payout.send"].every(isFinancialJobType)).toBe(true);
+    expect(["asset.validate", "payment", "refunds.issue", "settlement.send"].some(isFinancialJobType)).toBe(false);
+  });
+});
 
 describe("jobIdempotencyKey", () => {
   it("includes the job type, subject version, and stage", () => {
