@@ -11,6 +11,9 @@
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
+  "dependencies": {
+    "@roomrelay/spatial": "workspace:*"
+  },
   "devDependencies": {
     "@types/node": "24.5.2",
     "typescript": "5.9.3",

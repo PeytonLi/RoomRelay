@@ -98,7 +98,10 @@ interface GltfJson {
  * truncated chunks, files over 50MB, and any external URI on buffers or
  * images (data:, http:, or relative — embedded only for now).
  */
-export function inspectGlb(bytes: Uint8Array): GlbInspection {
+export function inspectGlb(
+  bytes: Uint8Array,
+  options: { allowDataUris?: boolean } = {},
+): GlbInspection {
   if (bytes.byteLength > MAX_GLB_BYTES) {
     throw new GlbError("TOO_LARGE", `GLB is ${bytes.byteLength} bytes; limit is ${MAX_GLB_BYTES}`);
   }
@@ -133,12 +136,12 @@ export function inspectGlb(bytes: Uint8Array): GlbInspection {
 
   // Embedded-only policy (A-07: no remote/external references).
   for (const [i, b] of (json.buffers ?? []).entries()) {
-    if (b.uri !== undefined) {
+    if (b.uri !== undefined && !(options.allowDataUris && b.uri.startsWith("data:"))) {
       throw new GlbError("EXTERNAL_URI", `buffers[${i}] references external data (${b.uri.slice(0, 32)}...)`);
     }
   }
   for (const [i, im] of (json.images ?? []).entries()) {
-    if (im.uri !== undefined) {
+    if (im.uri !== undefined && !(options.allowDataUris && im.uri.startsWith("data:"))) {
       throw new GlbError("EXTERNAL_URI", `images[${i}] references external data (${im.uri.slice(0, 32)}...)`);
     }
   }
