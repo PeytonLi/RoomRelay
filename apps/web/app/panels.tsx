@@ -23,9 +23,9 @@ export function FitPanel({ layout }: { layout: LayoutResult }) {
       <div style={{ marginTop: 6 }}>
         {visible.map((f, i) => (
           <div key={i} className={`finding ${f.status.toLowerCase()}`} data-testid={`finding-${f.code}`}>
-            <span className="dot" />
+            <span className="dot" aria-hidden="true" />
             <span>
-              {f.status === "FAIL" ? "✗ " : f.status === "UNKNOWN" ? "? " : ""}
+              <span className="sr-only">{f.status}: </span>
               {f.message}
             </span>
           </div>

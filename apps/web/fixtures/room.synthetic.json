@@ -83,7 +83,7 @@
   "obstacles": [
     {
       "id": "bed-kept",
-      "label": "kept bed",
+      "label": "bed",
       "footprintXZ": [
         [
           2.4,
@@ -107,5 +107,5 @@
   ],
   "captureToRoomMatrix": null,
   "measurementRevision": 1,
-  "notes": "Synthetic fixture, not a capture: authored geometry for deterministic layout/viewer checks (C-04 schema). Door is on the z=0 wall, x 0.4-1.25, opening inward with a quarter-circle sweep approximated by 8 segments. Kept bed 1.0x2.0m against the x=3.4 wall, far corner."
+  "notes": "Synthetic fixture, not a capture: authored geometry for deterministic layout/viewer checks (C-04 schema). Door is on the z=0 wall, x 0.4-1.25, opening inward with a quarter-circle sweep approximated by 8 segments. Kept bed (label 'bed') 1.0x2.0m against the x=3.4 wall, far corner."
 }

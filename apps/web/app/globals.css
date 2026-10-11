@@ -148,10 +148,24 @@ button.btn:disabled { opacity: 0.45; cursor: default; }
 .muted { color: var(--ink-soft); font-size: 12.5px; line-height: 1.5; }
 .kbd-hint { font-size: 11.5px; color: var(--ink-soft); margin-top: 8px; }
 
+.sr-only {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .plan-wrap svg { width: 100%; height: auto; display: block; }
 
 @media (max-width: 720px) {
   .workspace { grid-template-columns: 1fr; grid-template-rows: auto minmax(320px, 46dvh) minmax(0, 1fr); }
   .stage { grid-row: 2; }
   .side { grid-row: 3; border-left: 0; border-top: 1px solid var(--line); }
+
+  .topbar { flex-direction: column; align-items: flex-start; gap: 2px; padding: 10px 16px; }
+  .topbar .spacer { display: none; }
+  .topbar .sub { display: block; }
 }
