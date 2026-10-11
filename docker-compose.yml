@@ -1,0 +1,14 @@
+services:
+  postgres:
+    image: postgres:18
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: roomrelay
+      POSTGRES_PASSWORD: roomrelay-dev
+      POSTGRES_DB: roomrelay
+    ports:
+      - "5432:5432"
+    volumes:
+      - roomrelay-pgdata:/var/lib/postgresql/data
+volumes:
+  roomrelay-pgdata:

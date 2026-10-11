@@ -1,0 +1,111 @@
+{
+  "schemaVersion": 1,
+  "units": "m",
+  "synthetic": true,
+  "frameId": "synthetic-room-frame",
+  "boundaryXZ": [
+    [
+      0,
+      0
+    ],
+    [
+      3.4,
+      0
+    ],
+    [
+      3.4,
+      4.0
+    ],
+    [
+      0,
+      4.0
+    ]
+  ],
+  "ceilingHeightM": 2.5,
+  "doors": [
+    {
+      "id": "door-entry",
+      "openingXZ": [
+        [
+          0.4,
+          0
+        ],
+        [
+          1.25,
+          0
+        ]
+      ],
+      "swingPolygonXZ": [
+        [
+          0.4,
+          0.0
+        ],
+        [
+          1.25,
+          0.0
+        ],
+        [
+          1.233667,
+          0.165827
+        ],
+        [
+          1.185298,
+          0.325281
+        ],
+        [
+          1.106749,
+          0.472235
+        ],
+        [
+          1.001041,
+          0.601041
+        ],
+        [
+          0.872235,
+          0.706749
+        ],
+        [
+          0.725281,
+          0.785298
+        ],
+        [
+          0.565827,
+          0.833667
+        ],
+        [
+          0.4,
+          0.85
+        ]
+      ],
+      "confirmed": true
+    }
+  ],
+  "obstacles": [
+    {
+      "id": "bed-kept",
+      "label": "bed",
+      "footprintXZ": [
+        [
+          2.4,
+          2.0
+        ],
+        [
+          3.4,
+          2.0
+        ],
+        [
+          3.4,
+          4.0
+        ],
+        [
+          2.4,
+          4.0
+        ]
+      ],
+      "heightM": 0.55
+    }
+  ],
+  "captureToRoomMatrix": null,
+  "measurementRevision": 1,
+  "notes": "Synthetic fixture, not a capture: authored geometry for deterministic layout/viewer checks (C-04 schema). Door is on the z=0 wall, x 0.4-1.25, opening inward with a quarter-circle sweep approximated by 8 segments. Kept bed (label 'bed') 1.0x2.0m against the x=3.4 wall, far corner."
+}

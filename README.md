@@ -24,3 +24,20 @@ RoomRelay connects someone moving out with someone moving in: capture actual sec
 Requirements use stable IDs so build updates can cite a specific contract. `docs/PRD.md` owns product scope; the specialized files own their detailed contracts. `build_status.md` owns actual implementation progress. A planned feature is not evidence of an implemented feature.
 
 No private room media, credentials, merchant identities, or customer information belongs in the public Git repository. Runtime assets live in private object storage; public demo assets must be synthetic or expressly licensed/consented.
+
+## Development setup (M0)
+
+Requirements: Node 20.19+, pnpm via `corepack enable`, PostgreSQL 18 (see `docker-compose.yml`, or a native install).
+
+```sh
+cp .env.example .env          # fill in DATABASE_URL at minimum
+pnpm install
+pnpm fixtures:fetch           # downloads the pinned public SheenChair.glb
+pnpm db:migrate               # prisma migrate deploy + generate
+pnpm dev                      # http://localhost:3000 (viewer) and /api/health
+pnpm test                     # vitest across packages
+pnpm test:e2e                 # playwright (chromium, software GL flags)
+```
+
+The Prisma schema and `prisma.config.ts` live in `apps/web/`; generated client
+output goes to `apps/web/lib/generated/prisma` (gitignored).

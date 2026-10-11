@@ -1,0 +1,109 @@
+// RoomRelay baseline schema (T-001). Minimal; T-004 expands ownership,
+// reservations and listing review. Canonical geometry/measurement contract
+// is docs/CAPTURE_AND_3D.md C-04..C-06.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../lib/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum ItemProvenance {
+  SCANNED_ACTUAL
+  CATALOG_EXACT_MATCH
+  APPROXIMATE_PROXY
+  ILLUSTRATIVE_GENERATED
+}
+
+enum ItemStatus {
+  DRAFT
+  ACTIVE
+  RESERVED
+  SOLD
+  WITHDRAWN
+}
+
+enum AssetProcessingStatus {
+  UPLOADED
+  QUEUED
+  PROCESSING
+  NEEDS_REVIEW
+  READY
+  FAILED
+  DELETING
+  DELETED
+}
+
+model Room {
+  id                  String   @id @default(uuid())
+  ownerId             String   @map("owner_id")
+  geometry            Json
+  measurementRevision Int      @default(1) @map("measurement_revision")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  assets Asset[]
+
+  @@map("rooms")
+}
+
+model Item {
+  id              String         @id @default(uuid())
+  sellerId        String         @map("seller_id")
+  title           String
+  widthM          Decimal?       @map("width_m") @db.Decimal(7, 4)
+  depthM          Decimal?       @map("depth_m") @db.Decimal(7, 4)
+  heightM         Decimal?       @map("height_m") @db.Decimal(7, 4)
+  dimsConfirmedAt DateTime?      @map("dims_confirmed_at")
+  provenance      ItemProvenance
+  status          ItemStatus     @default(DRAFT)
+  createdAt       DateTime       @default(now()) @map("created_at")
+  updatedAt       DateTime       @updatedAt @map("updated_at")
+
+  assets Asset[]
+
+  @@map("items")
+}
+
+model Asset {
+  id               String                 @id @default(uuid())
+  itemId           String?                @map("item_id")
+  roomId           String?                @map("room_id")
+  sha256           String
+  bytes            BigInt
+  bounds           Json?
+  normalization    Json?
+  provenance       ItemProvenance
+  processingStatus AssetProcessingStatus  @default(UPLOADED) @map("processing_status")
+  createdAt        DateTime               @default(now()) @map("created_at")
+  updatedAt        DateTime               @updatedAt @map("updated_at")
+
+  item Item? @relation(fields: [itemId], references: [id], onDelete: SetNull)
+  room Room? @relation(fields: [roomId], references: [id], onDelete: SetNull)
+
+  @@map("assets")
+}
+
+enum EvidenceSource {
+  USER_CONFIRMED
+  TAPE_MEASURED
+  SCAN_ESTIMATE
+  CATALOG_SPEC
+}
+
+model MeasurementEvidence {
+  id          String         @id @default(uuid())
+  subjectType String         @map("subject_type") // e.g. "room" | "item"
+  subjectId   String         @map("subject_id")
+  source      EvidenceSource
+  value       Json
+  actor       String
+  confirmedAt DateTime?      @map("confirmed_at")
+  revision    Int            @default(1)
+  createdAt   DateTime       @default(now()) @map("created_at")
+
+  @@map("measurement_evidence")
+}

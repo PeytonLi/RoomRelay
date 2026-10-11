@@ -1,0 +1,34 @@
+{
+  "id": "item-sheen-chair",
+  "title": "Sheen accent chair (public sample)",
+  "provenance": "APPROXIMATE_PROXY",
+  "provenanceNote": "Public Khronos glTF sample model (\u00a9 2020 Wayfair, CC0 1.0) standing in as an approximate proxy \u2014 not a scanned for-sale item and not the exact chair a seller would ship.",
+  "asset": {
+    "path": "/fixtures/SheenChair.glb",
+    "sha256": "f0af2a2b102d28d540236306ae19f8fb36842df76bd38cf76f063f9bd2853399",
+    "bytes": 4125648,
+    "triangleCount": 39936,
+    "textureCount": 7,
+    "sourceUnits": "m",
+    "boundsMin": [
+      -0.4140224,
+      -6.977785e-05,
+      -0.2767251
+    ],
+    "boundsMax": [
+      0.412535578,
+      0.6861773,
+      0.293540359
+    ],
+    "sourceYawRad": 0.0,
+    "frontNote": "Model front assumed +Z (source\u2192canonical yaw 0 rad); pending visual confirmation in viewer."
+  },
+  "confirmedDimsM": {
+    "widthM": 0.827,
+    "depthM": 0.57,
+    "heightM": 0.686
+  },
+  "conditionPhotos": [],
+  "photosNote": "No condition photos: synthetic fixture.",
+  "notes": "Confirmed dims are the GLB's measured world-space bounds in meters (packages/assets inspectGlb), not invented numbers."
+}
