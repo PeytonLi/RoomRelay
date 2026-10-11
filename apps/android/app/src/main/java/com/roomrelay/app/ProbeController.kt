@@ -1,7 +1,6 @@
 package com.roomrelay.app
 
 import android.Manifest
-import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
@@ -43,6 +42,7 @@ import java.util.Locale
 import java.util.TimeZone
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 
 internal data class CapabilitySnapshot(
     val arServicesInstalled: Boolean = false,
@@ -68,6 +68,7 @@ internal data class ProbeUiState(
     val capability: CapabilitySnapshot = CapabilitySnapshot(),
     val measure: MeasureSnapshot = MeasureSnapshot(),
     val trials: List<MeasurementTrial> = emptyList(),
+    val lastSavedPairId: Long? = null,
     val notes: String = "",
     val sessionLog: com.roomrelay.app.core.SessionLog? = null,
     val sessionLogRunning: Boolean = false,
@@ -119,14 +120,16 @@ internal class ProbeController(private val activity: ComponentActivity) {
     fun refreshCapabilities() {
         handler.removeCallbacksAndMessages(null)
         refreshArServicesPackage()
-        mutableState.value = mutableState.value.copy(
-            capability = mutableState.value.capability.copy(
-                availability = "CHECKING",
-                availabilityPolls = 0,
-                checkingAvailability = true,
-                cameraPermission = cameraPermissionStatus(),
-            ),
-        )
+        mutableState.update { state ->
+            state.copy(
+                capability = state.capability.copy(
+                    availability = "CHECKING",
+                    availabilityPolls = 0,
+                    checkingAvailability = true,
+                    cameraPermission = cameraPermissionStatus(),
+                ),
+            )
+        }
         pollAvailability()
     }
 
@@ -233,11 +236,13 @@ internal class ProbeController(private val activity: ComponentActivity) {
             thermalStatus(),
             if (automaticDepthEnabled) "AUTOMATIC" else "DISABLED",
         )
-        mutableState.value = mutableState.value.copy(
-            sessionLog = null,
-            sessionLogRunning = true,
-            sessionElapsedS = 0L,
-        )
+        mutableState.update { state ->
+            state.copy(
+                sessionLog = null,
+                sessionLogRunning = true,
+                sessionElapsedS = 0L,
+            )
+        }
     }
 
     fun stopSessionLog() {
@@ -252,64 +257,97 @@ internal class ProbeController(private val activity: ComponentActivity) {
 
     fun saveTrial(tapeText: String, label: String) {
         val tapeCm = parseTapeCm(tapeText)
-        val measurement = mutableState.value.measure
-        val arcoreM = measurement.distanceMeters
-        if (tapeCm == null || arcoreM == null || !measurement.hasBothAnchors) {
-            updateMeasureMessage("Set two points and enter a valid tape length in centimeters.")
-            return
+        var trialSaved = false
+        mutableState.update { state ->
+            trialSaved = false
+            val measurement = state.measure
+            val pairId = measurement.pairId
+            if (pairId == null || pairId == state.lastSavedPairId) {
+                state.copy(
+                    measure = measurement.copy(
+                        message = "This point pair is already saved. Reset or tap new points.",
+                    ),
+                )
+            } else {
+                val arcoreM = measurement.distanceMeters
+                if (tapeCm == null || arcoreM == null || !measurement.hasBothAnchors) {
+                    state.copy(
+                        measure = measurement.copy(
+                            message = "Set two points and enter a valid tape length in centimeters.",
+                        ),
+                    )
+                } else {
+                    val error = computeError(tapeCm, arcoreM)
+                    if (error == null) {
+                        state.copy(
+                            measure = measurement.copy(
+                                message = "The measurement could not be compared with the tape length.",
+                            ),
+                        )
+                    } else {
+                        val index = state.trials.size + 1
+                        val trial = MeasurementTrial(
+                            index = index,
+                            label = label.trim().ifBlank { "Trial $index" },
+                            recordedAtUtc = utcNow(),
+                            tapeCm = tapeCm,
+                            arcoreM = arcoreM,
+                            errorCm = error.errorCm,
+                            errorPct = error.errorPct,
+                            hitTypes = listOfNotNull(measurement.firstHitType, measurement.secondHitType),
+                            trackingAtMeasure = measurement.trackingState,
+                            anchorTrackingAtMeasure = measurement.anchorTracking,
+                        )
+                        trialSaved = true
+                        state.copy(
+                            trials = state.trials + trial,
+                            measure = measurement.copy(
+                                distanceMeters = null,
+                                firstHitType = null,
+                                secondHitType = null,
+                                hasBothAnchors = false,
+                                pairId = null,
+                                anchorTracking = emptyList(),
+                                message = "Trial saved. Tap to start another measurement.",
+                            ),
+                            lastSavedPairId = pairId,
+                        )
+                    }
+                }
+            }
         }
-        val error = computeError(tapeCm, arcoreM) ?: run {
-            updateMeasureMessage("The measurement could not be compared with the tape length.")
-            return
+        if (trialSaved) {
+            renderer.resetPoints(message = "Trial saved. Tap to start another measurement.")
         }
-        val trial = MeasurementTrial(
-            index = mutableState.value.trials.size + 1,
-            label = label.trim().ifBlank { "Trial ${mutableState.value.trials.size + 1}" },
-            recordedAtUtc = utcNow(),
-            tapeCm = tapeCm,
-            arcoreM = arcoreM,
-            errorCm = error.errorCm,
-            errorPct = error.errorPct,
-            hitTypes = listOfNotNull(measurement.firstHitType, measurement.secondHitType),
-            trackingAtMeasure = measurement.trackingState,
-            anchorTrackingAtMeasure = measurement.anchorTracking,
-        )
-        mutableState.value = mutableState.value.copy(
-            trials = mutableState.value.trials + trial,
-            measure = measurement.copy(
-                distanceMeters = null,
-                firstHitType = null,
-                secondHitType = null,
-                hasBothAnchors = false,
-                anchorTracking = emptyList(),
-                message = "Trial saved. Tap to start another measurement.",
-            ),
-        )
-        renderer.resetPoints()
     }
 
     fun resetPoints() {
         renderer.resetPoints()
-        mutableState.value = mutableState.value.copy(
-            measure = mutableState.value.measure.copy(
-                distanceMeters = null,
-                firstHitType = null,
-                secondHitType = null,
-                hasBothAnchors = false,
-                anchorTracking = emptyList(),
-                message = "Points reset",
-            ),
-        )
+        mutableState.update { state ->
+            state.copy(
+                measure = state.measure.copy(
+                    distanceMeters = null,
+                    firstHitType = null,
+                    secondHitType = null,
+                    hasBothAnchors = false,
+                    pairId = null,
+                    anchorTracking = emptyList(),
+                    message = "Points reset",
+                ),
+            )
+        }
     }
 
     fun deleteTrial(index: Int) {
-        val remaining = mutableState.value.trials.filterNot { it.index == index }
-            .mapIndexed { position, trial -> trial.copy(index = position + 1) }
-        mutableState.value = mutableState.value.copy(trials = remaining)
+        mutableState.update { state ->
+            val remaining = state.trials.filterNot { it.index == index }
+                .mapIndexed { position, trial -> trial.copy(index = position + 1) }
+            state.copy(trials = remaining)
+        }
     }
 
     fun updateNotes(notes: String) {
-        mutableState.value = mutableState.value.copy(notes = notes)
+        mutableState.update { it.copy(notes = notes) }
     }
 
     fun exportAndShare() {
@@ -338,14 +376,16 @@ internal class ProbeController(private val activity: ComponentActivity) {
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
             activity.startActivity(Intent.createChooser(shareIntent, "Share probe report"))
-            mutableState.value = mutableState.value.copy(
-                reportFileName = fileName,
-                reportMessage = "Report saved and ready to share.",
-            )
+            mutableState.update {
+                it.copy(
+                    reportFileName = fileName,
+                    reportMessage = "Report saved and ready to share.",
+                )
+            }
         } catch (exception: Exception) {
-            mutableState.value = mutableState.value.copy(
-                reportMessage = "Report could not be exported (${exception.javaClass.simpleName}).",
-            )
+            mutableState.update {
+                it.copy(reportMessage = "Report could not be exported (${exception.javaClass.simpleName}).")
+            }
         }
     }
 
@@ -539,11 +579,13 @@ internal class ProbeController(private val activity: ComponentActivity) {
                     publishSessionLog()
                 }
                 session?.let { current ->
-                    mutableState.value = mutableState.value.copy(
-                        capability = mutableState.value.capability.copy(
-                            activeCameraConfig = cameraConfigInfo(current.cameraConfig),
-                        ),
-                    )
+                    mutableState.update { state ->
+                        state.copy(
+                            capability = state.capability.copy(
+                                activeCameraConfig = cameraConfigInfo(current.cameraConfig),
+                            ),
+                        )
+                    }
                 }
                 renderer.publishStatus("AR session active")
             } catch (exception: Exception) {
@@ -585,37 +627,38 @@ internal class ProbeController(private val activity: ComponentActivity) {
         }
         if (nowNs - lastUiPublishNs < UI_PUBLISH_INTERVAL_NS) return
         lastUiPublishNs = nowNs
-        mutableState.value = mutableState.value.copy(
-            measure = snapshot,
-            sessionLogRunning = sessionLogger.isRunning,
-            sessionElapsedS = if (sessionLogger.isRunning) sessionLogger.elapsedS(nowNs) else mutableState.value.sessionElapsedS,
-        )
+        mutableState.update { state ->
+            state.copy(
+                measure = snapshot,
+                sessionLogRunning = sessionLogger.isRunning,
+                sessionElapsedS =
+                    if (sessionLogger.isRunning) sessionLogger.elapsedS(nowNs) else state.sessionElapsedS,
+            )
+        }
     }
 
     private fun onRendererStatus(status: String) {
-        mutableState.value = mutableState.value.copy(
-            measure = mutableState.value.measure.copy(status = status, message = status),
-        )
+        mutableState.update { state ->
+            state.copy(measure = state.measure.copy(status = status, message = status))
+        }
     }
 
     private fun updateCapability(update: CapabilitySnapshot.() -> CapabilitySnapshot) {
-        mutableState.value = mutableState.value.copy(
-            capability = mutableState.value.capability.update(),
-        )
+        mutableState.update { state -> state.copy(capability = state.capability.update()) }
     }
 
     private fun updateMeasureMessage(message: String) {
-        mutableState.value = mutableState.value.copy(
-            measure = mutableState.value.measure.copy(message = message),
-        )
+        mutableState.update { state -> state.copy(measure = state.measure.copy(message = message)) }
     }
 
     private fun publishSessionLog() {
-        mutableState.value = mutableState.value.copy(
-            sessionLog = sessionLogger.result(),
-            sessionLogRunning = false,
-            sessionElapsedS = sessionLogger.elapsedS(SystemClock.elapsedRealtimeNanos()),
-        )
+        mutableState.update {
+            it.copy(
+                sessionLog = sessionLogger.result(),
+                sessionLogRunning = false,
+                sessionElapsedS = sessionLogger.elapsedS(SystemClock.elapsedRealtimeNanos()),
+            )
+        }
     }
 
     private fun buildReport(): ProbeReport {

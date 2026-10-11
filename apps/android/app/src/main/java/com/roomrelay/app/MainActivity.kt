@@ -288,7 +288,10 @@ private fun MeasureScreen(
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(
-                    enabled = measure.hasBothAnchors && tapeValid,
+                    enabled =
+                        measure.hasBothAnchors &&
+                            tapeValid &&
+                            measure.pairId != state.lastSavedPairId,
                     onClick = {
                         controller.saveTrial(tapeText, label)
                         tapeText = ""

@@ -45,6 +45,7 @@ internal data class MeasureSnapshot(
     val firstHitType: String? = null,
     val secondHitType: String? = null,
     val hasBothAnchors: Boolean = false,
+    val pairId: Long? = null,
     val anchorTracking: List<String> = emptyList(),
     val message: String = "",
 )
@@ -83,6 +84,7 @@ internal class ArProbeRenderer(
     private var boundSession: Session? = null
     private var anchorA: Anchor? = null
     private var anchorB: Anchor? = null
+    private var pairIdCounter = 0L
     private var hitTypeA: String? = null
     private var hitTypeB: String? = null
     @Volatile
@@ -108,8 +110,8 @@ internal class ArProbeRenderer(
         }
     }
 
-    fun resetPoints() {
-        statusMessage = "Points reset"
+    fun resetPoints(message: String = "Points reset") {
+        statusMessage = message
         resetPointsOnGlThread = true
     }
 
@@ -308,6 +310,7 @@ internal class ArProbeRenderer(
             firstHitType = hitTypeA,
             secondHitType = hitTypeB,
             hasBothAnchors = a != null && b != null,
+            pairId = if (a != null && b != null) pairIdCounter else null,
             anchorTracking = listOfNotNull(a?.trackingState?.name, b?.trackingState?.name),
             message = statusMessage,
         )
@@ -382,6 +385,7 @@ internal class ArProbeRenderer(
                 statusMessage = "Point A set. Tap a second point."
             } else {
                 anchorB = anchor
+                pairIdCounter += 1
                 hitTypeB = selected.label
                 statusMessage = "Point B set. Enter the tape length and save the trial."
             }
