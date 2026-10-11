@@ -1,6 +1,6 @@
 # RoomRelay build status
 
-Updated: 2026-10-11. Phase: **M0 in progress: web foundation and synthetic viewer slice in review ([PR #1](https://github.com/PeytonLi/RoomRelay/pull/1)); Android S24 probe in progress; T-006 `IN_REVIEW` ([PR #7](https://github.com/PeytonLi/RoomRelay/pull/7))**. This file is the source of truth for actual progress, not a restatement of the PRD. The documentation is published in the verified public [PeytonLi/RoomRelay repository](https://github.com/PeytonLi/RoomRelay) on `main`; no application is deployed.
+Updated: 2026-10-11. Phase: **M0 in progress: web foundation and synthetic viewer slice in review ([PR #1](https://github.com/PeytonLi/RoomRelay/pull/1)); Android S24 probe in progress; T-006 merged ([PR #7](https://github.com/PeytonLi/RoomRelay/pull/7)); asset worker merged ([PR #8](https://github.com/PeytonLi/RoomRelay/pull/8))**. This file is the source of truth for actual progress, not a restatement of the PRD. The documentation is published in the verified public [PeytonLi/RoomRelay repository](https://github.com/PeytonLi/RoomRelay) on `main`; no application is deployed.
 
 ## Current evidence
 
@@ -8,24 +8,24 @@ Updated: 2026-10-11. Phase: **M0 in progress: web foundation and synthetic viewe
 | --- | --- | --- |
 | Product baseline and scope | Complete | [docs/PRD.md](docs/PRD.md), FR-01..33 / AC-01..12. |
 | Journeys and UI states | Complete | [docs/USER_JOURNEYS.md](docs/USER_JOURNEYS.md), J-01..12. |
-| Architecture, schema and API | Complete as specification; T-006 implemented on feature branch | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md); T-006 schema, migration and API routes are in `devin/1791692691-t006-payments`, not merged. |
+| Architecture, schema and API | Complete as specification; T-006 implemented and merged in PR #7 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md); T-006 schema, migration and API routes are on `main`. |
 | Capture, spatial/model/rendering contract | Complete as specification | [docs/CAPTURE_AND_3D.md](docs/CAPTURE_AND_3D.md); no real scan/phone benchmark yet. |
-| Payment/recovery/hand-off contract | T-006 implementation and local tests complete; real sandbox capture/refund evidenced | [docs/PAYMENTS.md](docs/PAYMENTS.md), T-006 sandbox code and contract-mock tests; PayPal webhook delivery remains pending configuration and a real delivery check. |
+| Payment/recovery/hand-off contract | T-006 merged; sandbox capture/refund and real signed webhook delivery evidenced | [docs/PAYMENTS.md](docs/PAYMENTS.md), T-006 sandbox code and contract-mock tests; see the 2026-10-11 webhook-delivery session log. Stable deployed webhook configuration and Clerk identity remain. |
 | Authentication source check | Complete as research | [docs/AUTH_REFERENCE.md](docs/AUTH_REFERENCE.md); actual project and tokens untested. |
 | Implementation sequence and test matrix | Complete as specification | [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md). |
 | Sources, defaults and open questions | Complete as research/planning | [docs/REFERENCES_AND_DECISIONS.md](docs/REFERENCES_AND_DECISIONS.md). |
 | Documentation integrity | Complete | 12 Markdown files, 42 internal links and the 655-word handoff checked; required IDs, UTF-8, code fences, credential/private-path patterns and Git whitespace checks passed. |
 | Public repository publication | Complete | GitHub reports PUBLIC / main; all 14 intended files are present remotely. Initial specification commit `bf4d759e539d435f0201657da5d876c8c5580738` matched the remote branch. |
-| Web app / database / worker | IN_PROGRESS (PR #1) | Next.js 16 web app, Prisma 7 baseline migration, capability-aware env config, `/api/health`. Verified locally against native PostgreSQL 18 on a Windows VM; not deployed. No worker yet. |
+| Web app / database / worker | IN_PROGRESS (PR #1; T-006 and asset worker merged in PRs #7/#8) | Next.js 16 web app, Prisma 7 baseline migration, capability-aware env config, `/api/health`; asset validation job queue and worker are merged in PR #8. Verified locally against native PostgreSQL 18 on a Windows VM; not deployed. |
 | Android scanner / real ML inference | Not started | No APK, phone test, model benchmark or inference evidence exists. |
 | 3D assets / reconstruction | IN_PROGRESS (PR #1) | Synthetic measured room fixture plus the public Khronos SheenChair (CC0, `APPROXIMATE_PROXY`, pinned SHA-256) in an interactive Three.js + 2D viewer with live fit checks and local GLB import. No real room or item scan has been imported yet. No reconstruction service exists. |
 | Asset validation / job queue | IN_PROGRESS (in review) | CPU slice only: `validateGlb` + `buildAssetManifest` (packages/assets), Postgres leased `Job` queue (packages/jobs), `asset.validate` local-filesystem worker (workers/assets). Not wired to uploads or the Asset model; no S3, thumbnails, conversion or optimization. |
-| PayPal / identity / cloud accounts | T-006 sandbox REST app and merchant configured; webhook and Clerk not configured | The T-006 sandbox transaction is evidenced below; no public webhook endpoint/subscription/ID or Clerk identity is configured. |
-| Runtime tests / deployment | T-006 local checks pass; no deployment | Follow-up: `pnpm typecheck` passed; `pnpm test` passed 72/72 (assets 6, spatial 21, web 45; DB project ran against `roomrelay_test`); DB project passed 31/31 on each of three consecutive runs. The earlier T-006 e2e run passed 9/9; e2e was not rerun because no production UI or route code changed in the coverage follow-up. `pnpm lint` previously exited 0 but skipped because no ESLint flat config exists. CI (`.github/workflows/ci.yml`) runs on the PR; no deployment. |
+| PayPal / identity / cloud accounts | T-006 sandbox app and merchant configured; real webhook tested through an ephemeral tunnel | Real approval, capture-completed and capture-refunded events verified and processed; the temporary subscription was deleted. A stable public HTTPS URL, permanent webhook subscription, deployed `PAYPAL_WEBHOOK_ID`, and Clerk identity remain. |
+| Runtime tests / deployment | T-006 local checks pass; CI workflow is on main; no deployment | Follow-up: `pnpm typecheck` passed; `pnpm test` passed 72/72 (assets 6, spatial 21, web 45; DB project ran against `roomrelay_test`); DB project passed 31/31 on each of three consecutive runs. The earlier T-006 e2e run passed 9/9; e2e was not rerun because no production UI or route code changed in the coverage follow-up. `pnpm lint` previously exited 0 but skipped because no ESLint flat config exists. `.github/workflows/ci.yml` is merged on main and runs CI; no deployment. |
 
 ## Next assignment
 
-**Immediate T-006 follow-up:** T-006 is `IN_REVIEW` ([PR #7](https://github.com/PeytonLi/RoomRelay/pull/7)) and the real sandbox capture/full refund are evidenced below. The remaining payment setup is a public HTTPS URL, a subscribed PayPal webhook, and `PAYPAL_WEBHOOK_ID`; real webhook delivery remains untested. Clerk identity is also needed before authenticated API routes can become available. After the payment follow-up, continue **T-002: S24 capture/export feasibility**. An ARCore capability and two-point tape-measurement probe APK is being built in a separate PR. It needs a physical Galaxy S24 run to produce evidence. After that, **import one tape-measured RealityScan/Scaniverse room and one item** through the viewer's local GLB path to complete M1 with real assets.
+**Immediate next:** provision a stable public HTTPS URL, create a permanent PayPal webhook subscription, and configure `PAYPAL_WEBHOOK_ID` in the deployed environment; resolve Clerk identity before authenticated API routes become available. T-006 is merged in PR #7 and the sandbox capture/refund and one-time real webhook delivery are evidenced below. Then continue **T-002: S24 capture/export feasibility**. An ARCore capability and two-point tape-measurement probe APK is being built in a separate PR. It needs a physical Galaxy S24 run to produce evidence. After that, **import one tape-measured RealityScan/Scaniverse room and one item** through the viewer's local GLB path to complete M1 with real assets.
 
 Owner: Devin (sessions https://app.devin.ai/sessions/a547e324f36d44d2ab61b3dd8d5494b9 and https://app.devin.ai/sessions/4a04b75b08da42f4b39555ced7549560 for Android).
 
@@ -77,6 +77,16 @@ Blocker or risk (if any): schema.prisma EOF block can conflict textually with T-
 Next task: after T-004's Asset model lands, implement the Asset-backed guard and enqueue asset.validate on upload finalization.
 ```
 
+```text
+Date / task / owner: 2026-10-11 / T-006 real PayPal webhook delivery / Devin
+State and user-visible result: T-006 is merged in PR #7. The sandbox buyer approved PaymentOrder `2635839d-4abd-4e76-b6ae-acc2f5a2983f`; capture and full refund completed. PayPal's signed approval, capture-completed and capture-refunded events were delivered through an ephemeral Cloudflare Quick Tunnel and accepted by the app. The temporary webhook was deleted after the test.
+Files and commit: `build_status.md`; docs-only commit on `devin/1791697372-t006-webhook-delivery` (SHA reported in the push handoff).
+Checks actually run and results: create-only and `--resume` smoke commands completed successfully; all three real webhook rows have `verificationStatus=SUCCESS` and `processingState=PROCESSED`. The return-page probe used the same callback URL through the tunnel and localhost; both returned HTTP 200 with Next.js responses and the dev log recorded HTTP 200. The browser-reported “Your request was blocked” was not reproduced; no Next dev cross-origin rejection was observed, so its cause remains undetermined. Evidence: `C:\Users\Administrator\work\evidence\webhook-create-only.txt`, `webhook-resume.txt`, `webhook-db.txt`, `checkout-return-probe.txt`, and `webhook-dev-server.log`.
+Requirements satisfied / remaining: Webhook `00W11897CX915635V` was created HTTP 201 (PayPal-Debug-Id `ca48b91b49f1f`) and deleted HTTP 204 (PayPal-Debug-Id `f270126c3ffa1`). Simulator: HTTP 202, debug `f689591b9fbac`, event `WH-58D329510W468432D-8HN650336L201105X`, verification `SUCCESS`, processing `IGNORED` as unrelated. Create-only: PayPal order `41831300XA0869538`, PaymentOrder `2635839d-4abd-4e76-b6ae-acc2f5a2983f`, `PAYER_ACTION_REQUIRED`, debug `f741677ec1272`. Approval event `WH-7H112927AY5738539-5NB04946TD364150H` (`CHECKOUT.ORDER.APPROVED`) verified `SUCCESS`/`PROCESSED`; its payment event was `transition`/`PAYPAL`, `PROVIDER_CREATED -> APPROVED`. Resume capture `76M67592D3941632G` (`PAID`, debug `f5001256c1817`) and refund `1G128817SU618890A` (`COMPLETED`, debug `f93438045c95b`); final order `REFUNDED`. Capture event `WH-71S00535CK0820534-7J629596BG608324Y` and refund event `WH-81R03285WV7475015-3RB43210ND734812A` each verified `SUCCESS`/`PROCESSED`; both arrived after resume had already applied the corresponding state, so neither caused another payment-state transition. Final DB: amount/captured/refunded `1234` cents, hold `CONSUMED`, inventory `SOLD`, refund `COMPLETED`. Remaining: stable public URL, permanent webhook subscription and deployed `PAYPAL_WEBHOOK_ID`; Clerk identity.
+Blocker or risk (if any): The quick-tunnel URL and webhook subscription were ephemeral and have been removed. The browser-only return-page block was not reproducible with curl through either origin; its source is not confirmed.
+Next task: provision the stable deployed webhook endpoint/configuration and Clerk identity, then continue **T-002: S24 capture/export feasibility**.
+```
+
 ## Milestone ledger
 
 | Milestone | State | Exit evidence |
@@ -84,7 +94,7 @@ Next task: after T-004's Asset model lands, implement the Asset-backed guard and
 | M0 foundation/feasibility | IN_PROGRESS | Toolchain/config/known-length device and scan-export results. |
 | M1 actual item in room | IN_PROGRESS (synthetic only) | Independent permitted asset, scale/orientation and interactive preview. |
 | M2 data/AI planning | IN_PROGRESS (T-005 in review) | Real constrained DeepSeek call validated against synthetic fixtures; auth/private inventory/layout/quotes remain. |
-| M3 sandbox commerce | IN_PROGRESS | T-006 code and local race/recovery tests pass; real sandbox capture/full-refund is evidenced; PayPal webhook delivery remains pending configuration and a real delivery check. |
+| M3 sandbox commerce | IN_PROGRESS | T-006 code and local race/recovery tests pass; real sandbox capture/full-refund and signed approval, capture-completed and capture-refunded webhook deliveries are evidenced via an ephemeral tunnel. Stable deployed webhook configuration and Clerk identity remain. |
 | M4 live Android capture | TODO | Actual S24 live inference, guided capture and API sync. |
 | M5 complete prototype | TODO | AC-01..12 with evidence and full demo. |
 | M6 splat/AR enhancements | DEFERRED | Starts after M5 core evidence. |
@@ -93,7 +103,7 @@ Next task: after T-004's Asset model lands, implement the Asset-backed guard and
 ## Open prerequisites and limits
 
 - No exact S24 variant/runtime, permitted room/item assets or device performance result is available.
-- T-006 PayPal sandbox app and business merchant configuration are present only in ignored local `apps/web/.env`; the real capture/full-refund transaction is evidenced above. No public webhook endpoint/subscription/ID, Clerk identity or private storage configuration exists. AI: a DeepSeek key is used only from local ignored env (`apps/web/.env`) for T-005.
+- T-006 PayPal sandbox app and business merchant configuration are present only in ignored local `apps/web/.env`; the real capture/full-refund and webhook deliveries are evidenced above. Remaining T-006 gaps: a stable public HTTPS deployment URL, a permanent PayPal webhook subscription, `PAYPAL_WEBHOOK_ID` in deployed env, and Clerk identity. The ephemeral Cloudflare Quick Tunnel subscription used for testing was deleted. AI: a DeepSeek key is used only from local ignored env (`apps/web/.env`) for T-005.
 - No provider credentials belong in this file or Git. Use configuration placeholders and secret storage.
 - No marketplace production approval, protection claim, live money or public app deployment exists.
 - Model category limits, scan fidelity, geometry error, costs and user demand remain validation tasks. See OPEN-01..10 in REFERENCES_AND_DECISIONS.md.
