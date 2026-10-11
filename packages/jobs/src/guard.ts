@@ -19,7 +19,6 @@ export class InMemorySubjectVersionGuard implements SubjectVersionGuard {
   }
 
   async check(subject: JobSubject, _tx: Queryable): Promise<SubjectState> {
-    void _tx;
     const key = subjectKey(subject.type, subject.id);
     if (this.deletedSubjects.has(key)) return "DELETED";
     const currentVersion = this.currentVersions.get(key);

@@ -7,6 +7,14 @@ import tseslint from "typescript-eslint";
 
 const webFiles = ["apps/web/**/*.{js,jsx,mjs,ts,tsx}"];
 const nonWebTypeScriptFiles = ["packages/**/*.ts", "workers/**/*.ts", "scripts/**/*.ts"];
+const unusedVarsRule = [
+  "error",
+  {
+    argsIgnorePattern: "^_",
+    varsIgnorePattern: "^_",
+    caughtErrorsIgnorePattern: "^_",
+  },
+];
 
 const scopeNextConfigs = (configs) =>
   configs.map((config) => {
@@ -54,4 +62,16 @@ export default defineConfig([
   })),
   ...scopeNextConfigs(coreWebVitals),
   ...scopeNextConfigs(nextTypeScript),
+  {
+    files: nonWebTypeScriptFiles,
+    rules: {
+      "@typescript-eslint/no-unused-vars": unusedVarsRule,
+    },
+  },
+  {
+    files: ["apps/web/**/*.ts", "apps/web/**/*.tsx"],
+    rules: {
+      "@typescript-eslint/no-unused-vars": unusedVarsRule,
+    },
+  },
 ]);

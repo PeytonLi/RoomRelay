@@ -3,7 +3,7 @@ import type { PayPalWebhookHeaders } from "./paypal/types";
 import type { PaymentDeps } from "./deps";
 import { PaymentError } from "./errors";
 import { PayPalHttpError, PayPalNetworkError } from "./paypal/client";
-import { recordApproval, syncProviderOrder } from "./checkout";
+import { recordApproval } from "./checkout";
 import { reconcileOrder } from "./reconcile";
 import { reconcileRefund } from "./refunds";
 import { transitionOrder } from "./state";

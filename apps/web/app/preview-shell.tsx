@@ -50,6 +50,8 @@ function webglSupported(): boolean {
   }
 }
 
+let webglSupportCache: boolean | undefined;
+const getWebglSnapshot = (): boolean => (webglSupportCache ??= webglSupported());
 const subscribeToWebglSupport = () => () => {};
 const getWebglServerSnapshot = (): boolean | null => null;
 
@@ -62,7 +64,7 @@ export default function PreviewShell() {
   const [resetPlacements, setResetPlacements] = useState<Record<string, Placement>>({});
   const webgl = useSyncExternalStore<boolean | null>(
     subscribeToWebglSupport,
-    webglSupported,
+    getWebglSnapshot,
     getWebglServerSnapshot,
   );
   const [frameStats, setFrameStats] = useState<FrameStats>({ medianMs: null });
